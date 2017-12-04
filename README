@@ -1,0 +1,7 @@
+TODO:
+
+Readme.md real
+
+Makefile portable (should work native and cross build)
+
+travis.yml
