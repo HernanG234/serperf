@@ -51,7 +51,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
 		  if (state->arg_num >= 1) {
 			  argp_usage(state);
 		  }
-		  snprintf(arguments->device, 63, arg);
+		  snprintf(arguments->device, 63, "%s", arg);
 		  break;
 	case ARGP_KEY_END:
 		  if (state->arg_num < 1)
@@ -74,8 +74,8 @@ static void receive_reply(int fd, struct msg *msg)
 	int ret;
 
 	ret = read(fd, &msg->header, sizeof(struct msg_header));
-	if (ret > 0 && ret < sizeof(struct msg_header)) {
-		printf("server: read %d bytes expected %d\n", ret, sizeof(struct msg_header));
+	if (ret > 0 && ret < (int) sizeof(struct msg_header)) {
+		printf("server: read %d bytes expected %lu\n", ret, sizeof(struct msg_header));
 		exit(1);
 	} else if (ret < 0) {
 		/* TODO: Handle timeout. If timeout just continue. */
@@ -104,8 +104,8 @@ static void send_msg(int fd)
 	msg.header.crc = 0;//get_crc(msg);
 
 	ret = write(fd, &msg.header, sizeof(struct msg_header));
-	if (ret > 0 && ret < sizeof(struct msg_header)) {
-		printf("server: write %d bytes expected %d\n", ret, sizeof(struct msg_header));
+	if (ret > 0 && ret < (int) sizeof(struct msg_header)) {
+		printf("server: write %d bytes expected %lu\n", ret, sizeof(struct msg_header));
 		exit(1);
 	} else if (ret < 0) {
 		perror("server write error: ");
@@ -144,13 +144,13 @@ static void ping_pong(int fd, const char *payload, int len)
 	int ret;
 
 	memcpy(msg.payload, payload, len);
-	msg.type = PING_PONG;
-	msg.len = len;
-	msg.crc = 0;//get_crc(msg);
+	msg.header.type = PING_PONG;
+	msg.header.len = len;
+	msg.header.crc = 0;//get_crc(msg);
 
 	ret = write(fd, &msg.header, sizeof(struct msg_header));
-	if (ret > 0 && ret < sizeof(struct msg_header)) {
-		printf("server: write %d bytes expected %d\n", ret, sizeof(struct msg_header));
+	if (ret > 0 && ret < (int) sizeof(struct msg_header)) {
+		printf("server: write %d bytes expected %lu\n", ret, sizeof(struct msg_header));
 		exit(1);
 	} else if (ret < 0) {
 		perror("server write error: ");
@@ -174,8 +174,8 @@ static void run_server(int fd)
 
 	while (1) {
 		ret = read(fd, &msg.header, sizeof(struct msg_header));
-		if (ret > 0 && ret < sizeof(struct msg_header)) {
-			printf("server: read %d bytes expected %d\n", ret, sizeof(struct msg_header));
+		if (ret > 0 && ret < (int) sizeof(struct msg_header)) {
+			printf("server: read %d bytes expected %lu\n", ret, sizeof(struct msg_header));
 			exit(1);
 		} else if (ret < 0) {
 			/* TODO: Handle timeout. If timeout just continue. */
@@ -198,7 +198,7 @@ static void run_server(int fd)
 			exit(1);
 		}
 
-		switch (msg.type) {
+		switch (msg.header.type) {
 		case PING_PONG:
 			ping_pong(fd, msg.payload, msg.header.len);
 			break;
