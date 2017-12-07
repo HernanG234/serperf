@@ -8,6 +8,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/ioctl.h>
+#include <time.h>
 #include <unistd.h>
 
 enum msg_types {
@@ -18,18 +19,22 @@ enum msg_types {
 const char *argp_program_version = "serperf 0.1.0";
 const char *argp_program_bug_address = "<ezequiel@vanguardiasur.com.ar>";
 static char doc[] = "Test /dev/serial performance.";
-static char args_doc[] = "DEVICE";
+static char args_doc[] = "-s|c (-l bytes) (-b bytes) (-t seconds) DEVICE";
 
 static struct argp_option options[] = {
 	{ "server", 's', 0, 0, "Server mode"},
 	{ "client", 'c', 0, 0, "Client mode"},
 	{ "msg-length", 'l', "length", 0, "Set message length"},
+	{ "bytes", 'b', "bytes", 0, "Client: Number of bytes to send"},
+	{ "time", 't', "seconds", 0, "Client: Seconds to transmit data"},
 	{ 0 }
 };
 
 struct arguments {
 	enum { SERVER, CLIENT } mode;
 	int length;
+	enum { DEFAULT, BYTES, SECONDS} bors;
+	int limit;
 	char device[64];
 };
 
@@ -50,6 +55,10 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
 	case 's': arguments->mode = SERVER; break;
 	case 'c': arguments->mode = CLIENT; break;
 	case 'l': arguments->length = strtol(arg, NULL, 10); break;
+	case 'b': arguments->bors = BYTES;
+		  arguments->limit = strtol(arg, NULL, 10); break;
+	case 't': arguments->bors = SECONDS;
+		  arguments->limit = strtol(arg, NULL, 10); break;
 	case ARGP_KEY_ARG:
 		  if (state->arg_num >= 1) {
 			  argp_usage(state);
@@ -126,14 +135,13 @@ static void send_msg(int fd, int len)
 	}
 }
 
-static void run_client(int fd, int len)
+static void run_client_bytes(int fd, int len, char *cmp, int limit)
 {
 	struct msg msg;
-	char cmp[len];
 	int count = 0;
 
-	memset(cmp, 0x55, len);
-	while (1) {
+	printf("Client: Sending %d bytes\n", limit);
+	while (count < limit) {
 		/* TODO: Timeout not fatal everywhere! */
 		send_msg(fd, len);
 		count += (len + sizeof(msg.header));
@@ -142,6 +150,56 @@ static void run_client(int fd, int len)
 		if (memcmp(msg.payload, cmp, len)) {
 			printf("client: server reply is %s not the same\n", msg.payload);
 			exit(1);
+		}
+	}
+	printf("Finished sending %d bytes\n", limit);
+}
+
+static void run_client_seconds(int fd, int len, char *cmp, int limit)
+{
+	struct msg msg;
+	clock_t start = clock();
+	clock_t count = clock() - start;
+
+	printf("Client: Sending for %d seconds\n", limit);
+	while (count < limit) {
+		/* TODO: Timeout not fatal everywhere! */
+		send_msg(fd, len);
+		receive_reply(fd, &msg);
+
+		if (memcmp(msg.payload, cmp, len)) {
+			printf("client: server reply is %s not the same\n", msg.payload);
+			exit(1);
+		}
+		count = (int) clock() - start / CLOCKS_PER_SEC;
+	}
+}
+
+static void run_client(int fd, int len, int bors, int limit)
+{
+	struct msg msg;
+	char cmp[len];
+	int count = 0;
+
+	memset(cmp, 0x55, len);
+	switch (bors) {
+	case BYTES:
+		run_client_bytes(fd, len, cmp, limit);
+		break;
+	case SECONDS:
+		run_client_seconds(fd, len, cmp, limit);
+		break;
+	default:
+		while (1) {
+			/* TODO: Timeout not fatal everywhere! */
+			send_msg(fd, len);
+			count += (len + sizeof(msg.header));
+			receive_reply(fd, &msg);
+
+			if (memcmp(msg.payload, cmp, len)) {
+				printf("client: server reply is %s not the same\n", msg.payload);
+				exit(1);
+			}
 		}
 	}
 }
@@ -223,10 +281,27 @@ int main(int argc, char *argv[])
 {
 	struct arguments arguments;
 	struct stat dev_stat;
-	int fd, ret, len;
+	int fd, ret, len, bors, limit;
+
+	/* Default options */
+	arguments.length = 1024;
+	arguments.bors = DEFAULT;
 
 	/* Add arguments to client mode to stop after i) N bytes or ii) M seconds. */
 	argp_parse(&argp, argc, argv, 0, 0, &arguments);
+
+	printf ("Device = %s\nMode = %s\nMsg length = %d\nbors = %d\n",
+			arguments.device,
+			arguments.mode ? "Client" : "Server",
+			arguments.length,
+			arguments.bors);
+
+	if (arguments.bors) {
+		printf ("Send %s%d %s\n",
+			arguments.bors - 1 ? "for " : "",
+			arguments.limit,
+			arguments.bors -1 ? "seconds" : "bytes");
+	}
 
 	fd = open(arguments.device, O_RDWR);
 	if (fd < 0) {
@@ -245,17 +320,18 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
-	printf("length: %d\n", arguments.length);
 	if (arguments.length < 0 || arguments.length > 1024) {
 		printf ("%d bytes: not a valid length (0 < length <= 1024)\n",
 			arguments.length);
 		exit(1);
 	}
 	len = arguments.length;
+	bors = arguments.bors;
+	limit = arguments.limit;
 
 	if (arguments.mode == SERVER)
 		run_server(fd);
 	else
-		run_client(fd, len);
+		run_client(fd, len, bors, limit);
 	return 0;
 }
