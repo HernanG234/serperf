@@ -23,11 +23,13 @@ static char args_doc[] = "DEVICE";
 static struct argp_option options[] = {
 	{ "server", 's', 0, 0, "Server mode"},
 	{ "client", 'c', 0, 0, "Client mode"},
+	{ "msg-length", 'l', "length", 0, "Set message length"},
 	{ 0 }
 };
 
 struct arguments {
 	enum { SERVER, CLIENT } mode;
+	int length;
 	char device[64];
 };
 
@@ -47,6 +49,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
 	switch (key) {
 	case 's': arguments->mode = SERVER; break;
 	case 'c': arguments->mode = CLIENT; break;
+	case 'l': arguments->length = strtol(arg, NULL, 10); break;
 	case ARGP_KEY_ARG:
 		  if (state->arg_num >= 1) {
 			  argp_usage(state);
@@ -66,18 +69,19 @@ static struct argp argp = { options, parse_opt, args_doc, doc, 0, 0, 0 };
 
 int check_crc(struct msg *msg)
 {
-	return 0;
+	return 1;
 }
 
 static void receive_reply(int fd, struct msg *msg)
 {
-	int ret;
+	int ret, err;
 
 	ret = read(fd, &msg->header, sizeof(struct msg_header));
+	err = errno;
 	if (ret > 0 && ret < (int) sizeof(struct msg_header)) {
 		printf("server: read %d bytes expected %lu\n", ret, sizeof(struct msg_header));
 		exit(1);
-	} else if (ret < 0) {
+	} else if (ret < 0  && err != ETIMEDOUT) {
 		/* TODO: Handle timeout. If timeout just continue. */
 		perror("server read error: ");
 		exit(1);
@@ -93,14 +97,14 @@ static void receive_reply(int fd, struct msg *msg)
 	}
 }
 
-static void send_msg(int fd)
+static void send_msg(int fd, int len)
 {
 	struct msg msg;
 	int ret;
 
-	sprintf(msg.payload, "HELLO");
+	memset(msg.payload, 0x55, len);
 	msg.header.type = PING_PONG;
-	msg.header.len = strlen(msg.payload) + 1;
+	msg.header.len = len;
 	msg.header.crc = 0;//get_crc(msg);
 
 	ret = write(fd, &msg.header, sizeof(struct msg_header));
@@ -122,17 +126,21 @@ static void send_msg(int fd)
 	}
 }
 
-static void run_client(int fd)
+static void run_client(int fd, int len)
 {
 	struct msg msg;
+	char cmp[len];
+	int count = 0;
 
+	memset(cmp, 0x55, len);
 	while (1) {
 		/* TODO: Timeout not fatal everywhere! */
-		send_msg(fd);
+		send_msg(fd, len);
+		count += (len + sizeof(msg.header));
 		receive_reply(fd, &msg);
 
-		if (strcmp(msg.payload, "HELLO")) {
-			printf("client: server reply is %s not HELLO\n", msg.payload);
+		if (memcmp(msg.payload, cmp, len)) {
+			printf("client: server reply is %s not the same\n", msg.payload);
 			exit(1);
 		}
 	}
@@ -170,24 +178,26 @@ static void ping_pong(int fd, const char *payload, int len)
 static void run_server(int fd)
 {
 	struct msg msg;
-	int ret;
+	int ret, err;
 
 	while (1) {
 		ret = read(fd, &msg.header, sizeof(struct msg_header));
+		err = errno;
 		if (ret > 0 && ret < (int) sizeof(struct msg_header)) {
 			printf("server: read %d bytes expected %lu\n", ret, sizeof(struct msg_header));
 			exit(1);
-		} else if (ret < 0) {
+		} else if (ret < 0 && err != ETIMEDOUT) {
 			/* TODO: Handle timeout. If timeout just continue. */
 			perror("server read error: ");
 			exit(1);
 		}
 
 		ret = read(fd, msg.payload, msg.header.len);
+		err = errno;
 		if (ret > 0 && ret < msg.header.len) {
 			printf("server: read %d bytes expected %d\n", ret, msg.header.len);
 			exit(1);
-		} else if (ret < 0) {
+		} else if (ret < 0 && err != -60) {
 			perror("read error: ");
 			exit(1);
 		}
@@ -213,7 +223,7 @@ int main(int argc, char *argv[])
 {
 	struct arguments arguments;
 	struct stat dev_stat;
-	int fd, ret;
+	int fd, ret, len;
 
 	/* Add arguments to client mode to stop after i) N bytes or ii) M seconds. */
 	argp_parse(&argp, argc, argv, 0, 0, &arguments);
@@ -235,9 +245,17 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
+	printf("length: %d\n", arguments.length);
+	if (arguments.length < 0 || arguments.length > 1024) {
+		printf ("%d bytes: not a valid length (0 < length <= 1024)\n",
+			arguments.length);
+		exit(1);
+	}
+	len = arguments.length;
+
 	if (arguments.mode == SERVER)
 		run_server(fd);
 	else
-		run_client(fd);
+		run_client(fd, len);
 	return 0;
 }
