@@ -33,7 +33,7 @@ static struct argp_option options[] = {
 struct arguments {
 	enum { SERVER, CLIENT } mode;
 	int length;
-	enum { DEFAULT, MSGS, SECONDS} bors;
+	enum { DEFAULT, MSGS, SECONDS} mors;
 	int limit;
 	char device[64];
 };
@@ -55,9 +55,9 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
 	case 's': arguments->mode = SERVER; break;
 	case 'c': arguments->mode = CLIENT; break;
 	case 'l': arguments->length = strtol(arg, NULL, 10); break;
-	case 'b': arguments->bors = MSGS;
+	case 'm': arguments->mors = MSGS;
 		  arguments->limit = strtol(arg, NULL, 10); break;
-	case 't': arguments->bors = SECONDS;
+	case 't': arguments->mors = SECONDS;
 		  arguments->limit = strtol(arg, NULL, 10); break;
 	case ARGP_KEY_ARG:
 		  if (state->arg_num >= 1) {
@@ -174,14 +174,14 @@ static void run_client_seconds(int fd, int len, char *cmp, int limit)
 	printf("Finished sending data for %d seconds\n", limit);
 }
 
-static void run_client(int fd, int len, int bors, int limit)
+static void run_client(int fd, int len, int mors, int limit)
 {
 	struct msg msg;
 	char cmp[len];
 	int count = 0;
 
 	memset(cmp, 0x55, len);
-	switch (bors) {
+	switch (mors) {
 	case MSGS:
 		run_client_msgs(fd, len, cmp, limit);
 		break;
@@ -280,11 +280,11 @@ int main(int argc, char *argv[])
 {
 	struct arguments arguments;
 	struct stat dev_stat;
-	int fd, ret, len, bors, limit;
+	int fd, ret, len, mors, limit;
 
 	/* Default options */
 	arguments.length = 1024;
-	arguments.bors = DEFAULT;
+	arguments.mors = DEFAULT;
 
 	/* Add arguments to client mode to stop after i) N bytes or ii) M seconds. */
 	argp_parse(&argp, argc, argv, 0, 0, &arguments);
@@ -294,11 +294,11 @@ int main(int argc, char *argv[])
 			arguments.mode ? "Client" : "Server",
 			arguments.length);
 
-	if (arguments.bors) {
+	if (arguments.mors) {
 		printf ("Send %s%d %s\n",
-			arguments.bors - 1 ? "for " : "",
+			arguments.mors - 1 ? "for " : "",
 			arguments.limit,
-			arguments.bors -1 ? "seconds" : "bytes");
+			arguments.mors -1 ? "seconds" : "messages");
 	}
 
 	fd = open(arguments.device, O_RDWR);
@@ -324,12 +324,12 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 	len = arguments.length;
-	bors = arguments.bors;
+	mors = arguments.mors;
 	limit = arguments.limit;
 
 	if (arguments.mode == SERVER)
 		run_server(fd);
 	else
-		run_client(fd, len, bors, limit);
+		run_client(fd, len, mors, limit);
 	return 0;
 }
