@@ -1,9 +1,10 @@
-CFLAGS=-Wall -Wextra -O99 -Werror -Wno-unused-parameter -Wno-missing-field-initializers
-SHELL=/bin/bash
-NAME=serperf
+CFLAGS = -Wall -Wextra -O99 -Werror -Wno-unused-parameter -Wno-missing-field-initializers
 
-$(NAME): serperf.c
-	$(CC) $(CFLAGS) $^ -o $@
+serperf: serperf.o
 
+%.o: %.c
+	$(CC) $(CFLAGS) -c $^ -o $@
+
+.PHONY: clean
 clean:
-	rm serperf
+	rm -f serperf serperf.o
