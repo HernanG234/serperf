@@ -116,6 +116,7 @@ static void send_msg(int fd, int len)
 	msg.header.len = len;
 	msg.header.crc = 0;//get_crc(msg);
 
+	printf("Gonna write header %d\n", sizeof(struct msg_header));
 	ret = write(fd, &msg.header, sizeof(struct msg_header));
 	if (ret > 0 && ret < (int) sizeof(struct msg_header)) {
 		printf("server: write %d bytes expected %lu\n", ret, sizeof(struct msg_header));
@@ -125,6 +126,7 @@ static void send_msg(int fd, int len)
 		exit(1);
 	}
 
+	printf("Gonna write payload %d\n", msg.header.len);
 	ret = write(fd, msg.payload, msg.header.len);
 	if (ret > 0 && ret < msg.header.len) {
 		printf("server: write %d bytes expected %d\n", ret, msg.header.len);
@@ -133,6 +135,7 @@ static void send_msg(int fd, int len)
 		perror("server write error: ");
 		exit(1);
 	}
+	printf("%s finished\n", __func__);
 }
 
 static void run_client_msgs(int fd, int len, char *cmp, int limit)
@@ -213,7 +216,9 @@ static void ping_pong(int fd, const char *payload, int len)
 	msg.header.len = len;
 	msg.header.crc = 0;//get_crc(msg);
 
+	printf("Gonna write\n");
 	ret = write(fd, &msg.header, sizeof(struct msg_header));
+	printf("Written\n");
 	if (ret > 0 && ret < (int) sizeof(struct msg_header)) {
 		printf("server: write %d bytes expected %lu\n", ret, sizeof(struct msg_header));
 		exit(1);
@@ -238,7 +243,9 @@ static void run_server(int fd)
 	int ret, err;
 
 	while (1) {
+		printf("Gonna read header\n");
 		ret = read(fd, &msg.header, sizeof(struct msg_header));
+		printf("READ header\n");
 		err = errno;
 		if (ret > 0 && ret < (int) sizeof(struct msg_header)) {
 			printf("server: read %d bytes expected %lu\n", ret, sizeof(struct msg_header));
@@ -249,7 +256,10 @@ static void run_server(int fd)
 			exit(1);
 		}
 
+		printf("Message header length: %d\n", msg.header.len);
+		printf("Gonna READ payload\n");
 		ret = read(fd, msg.payload, msg.header.len);
+		printf("Read payload\n");
 		err = errno;
 		if (ret > 0 && ret < msg.header.len) {
 			printf("server: read %d bytes expected %d\n", ret, msg.header.len);
@@ -259,12 +269,14 @@ static void run_server(int fd)
 			exit(1);
 		}
 
+		printf("BEFORE CRC\n");
 		ret = check_crc(&msg);
 		if (!ret) {
 			printf("bad crc\n");
 			exit(1);
 		}
 
+		printf("BEFORE SWITCH\n");
 		switch (msg.header.type) {
 		case PING_PONG:
 			ping_pong(fd, msg.payload, msg.header.len);
@@ -298,7 +310,7 @@ int main(int argc, char *argv[])
 		printf ("Send %s%d %s\n",
 			arguments.mors - 1 ? "for " : "",
 			arguments.limit,
-			arguments.mors -1 ? "seconds" : "messages");
+			arguments.mors - 1 ? "seconds" : "messages");
 	}
 
 	fd = open(arguments.device, O_RDWR);
