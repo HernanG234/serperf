@@ -41,7 +41,7 @@ struct arguments {
 
 struct msg_header {
 	int type;
-	size_t len;
+	int len;
 	unsigned int crc;
 };
 
@@ -101,7 +101,7 @@ static unsigned char const crc8_table[] = {
 	0xd0, 0xee, 0xac, 0x92, 0x28, 0x16, 0x54, 0x6a, 0x45, 0x7b, 0x39, 0x07,
 	0xbd, 0x83, 0xc1, 0xff};
 
-unsigned int crc8(unsigned int crc, unsigned char const *data, size_t len)
+unsigned int crc8(unsigned int crc, unsigned char const *data, int len)
 {
 	if (data == NULL)
 		return 0;
@@ -114,7 +114,7 @@ unsigned int crc8(unsigned int crc, unsigned char const *data, size_t len)
 
 int check_crc(struct msg *msg)
 {
-	if (msg->header.crc != crc8(msg->header.crc,
+	if (msg->header.crc != crc8(0,
 				    msg->payload, msg->header.len))
 		return 1;
 
@@ -138,7 +138,7 @@ static void receive_reply(int fd, struct msg *msg)
 
 	ret = read(fd, msg->payload, msg->header.len);
 	if (ret > 0 && ret < (int) msg->header.len) {
-		printf("server: read %d bytes expected %lud\n", ret, msg->header.len);
+		printf("server: read %d bytes expected %d\n", ret, msg->header.len);
 		exit(1);
 	} else if (ret < 0) {
 		perror("read error: ");
@@ -154,7 +154,7 @@ static void send_msg(int fd, int len)
 	memset(msg.payload, 0x55, len);
 	msg.header.type = PING_PONG;
 	msg.header.len = len;
-	msg.header.crc = crc8(msg.header.crc, msg.payload, msg.header.len);
+	msg.header.crc = crc8(0, msg.payload, msg.header.len);
 
 	ret = write(fd, &msg.header, sizeof(struct msg_header));
 	if (ret > 0 && ret < (int) sizeof(struct msg_header)) {
@@ -167,7 +167,7 @@ static void send_msg(int fd, int len)
 
 	ret = write(fd, msg.payload, msg.header.len);
 	if (ret > 0 && ret < (int) msg.header.len) {
-		printf("server: write %d bytes expected %lud\n", ret, msg.header.len);
+		printf("server: write %d bytes expected %d\n", ret, msg.header.len);
 		exit(1);
 	} else if (ret < 0) {
 		perror("server write error: ");
@@ -251,7 +251,7 @@ static void ping_pong(int fd, const unsigned char *payload, int len)
 	memcpy(msg.payload, payload, len);
 	msg.header.type = PING_PONG;
 	msg.header.len = len;
-	msg.header.crc = crc8(msg.header.crc, msg.payload, msg.header.len);
+	msg.header.crc = crc8(0, msg.payload, msg.header.len);
 
 	ret = write(fd, &msg.header, sizeof(struct msg_header));
 	if (ret > 0 && ret < (int) sizeof(struct msg_header)) {
@@ -264,7 +264,7 @@ static void ping_pong(int fd, const unsigned char *payload, int len)
 
 	ret = write(fd, msg.payload, msg.header.len);
 	if (ret > 0 && ret < (int) msg.header.len) {
-		printf("server: write %d bytes expected %lud\n", ret, msg.header.len);
+		printf("server: write %d bytes expected %d\n", ret, msg.header.len);
 		exit(1);
 	} else if (ret < 0) {
 		perror("server write error: ");
@@ -291,8 +291,8 @@ static void run_server(int fd)
 
 		ret = read(fd, msg.payload, msg.header.len);
 		err = errno;
-		if (ret > 0 && ret < (int) msg.header.len) {
-			printf("server: read %d bytes expected %lud\n", ret, msg.header.len);
+		if (ret > 0 && ret < msg.header.len) {
+			printf("server: read %d bytes expected %d\n", ret, msg.header.len);
 			exit(1);
 		} else if (ret < 0 && err != -60) {
 			perror("read error: ");
