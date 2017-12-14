@@ -42,8 +42,7 @@ modes:
 
 ### Installation
 
-Clone from [here] (https://github.com/HernanG234/serperf). Run make
-(Make it portable).
+Clone from [here](https://github.com/HernanG234/serperf). Run make (Make it portable).
 
 ### Usage
 
