@@ -52,7 +52,7 @@ struct msg_header {
 
 struct msg {
 	struct msg_header header;
-	unsigned char payload[1024];
+	unsigned char payload[65536];
 };
 
 static error_t parse_opt(int key, char *arg, struct argp_state *state) {
@@ -167,26 +167,14 @@ static void send_msg(int fd, int len, int type, int rqbytes)
 	}
 	msg.header.crc = crc8(0, msg.payload, msg.header.len);
 
-	/* This should be just one write() */
-	ret = write(fd, &msg.header, sizeof(struct msg_header));
-	if (ret > 0 && ret < (int) sizeof(struct msg_header)) {
-		printf("server: write %d bytes expected %u\n", ret, sizeof(struct msg_header));
+	ret = write(fd, &msg.header, (sizeof(struct msg_header) + msg.header.len));
+	if (ret > 0 && ret < (int) (sizeof(struct msg_header) + msg.header.len)) {
+		printf("server: write %d bytes expected %u\n", ret, (sizeof(struct msg_header) + msg.header.len));
 		exit(1);
 	} else if (ret < 0) {
 		perror("server write error: ");
 		exit(1);
 	}
-
-	printf("Gonna write payload %d\n", msg.header.len);
-	ret = write(fd, msg.payload, msg.header.len);
-	if (ret > 0 && ret < (int) msg.header.len) {
-		printf("server: write %d bytes expected %d\n", ret, msg.header.len);
-		exit(1);
-	} else if (ret < 0) {
-		perror("server write error: ");
-		exit(1);
-	}
-	printf("%s finished\n", __func__);
 }
 
 static void do_check(const unsigned char *payload, char *cmp, int msglen, int type,
@@ -221,7 +209,7 @@ static void run_client_msgs(int fd, int len, int type, int rqbytes,
 		send_msg(fd, len, type, rqbytes);
 		count++;
 		receive_reply(fd, &msg);
-		do_check(msg.payload, cmp, len, type, rqbytes);
+		do_check(msg.payload, cmp, msg.header.len, type, rqbytes);
 	}
 	printf("Finished sending %d messages\n", limit);
 }
@@ -237,7 +225,7 @@ static void run_client_seconds(int fd, int len, int type, int rqbytes,
 		/* TODO: Timeout not fatal everywhere! */
 		send_msg(fd, len, type, rqbytes);
 		receive_reply(fd, &msg);
-		do_check(msg.payload, cmp, len, type, rqbytes);
+		do_check(msg.payload, cmp, msg.header.len, type, rqbytes);
 		count = (long int) (time(NULL) - start);
 	}
 	printf("Finished sending data for %d seconds\n", limit);
@@ -277,20 +265,9 @@ static void ping_pong(int fd, const unsigned char *payload, int len)
 	msg.header.len = len;
 	msg.header.crc = crc8(0, msg.payload, msg.header.len);
 
-	/* Make it just one write() */
-	ret = write(fd, &msg.header, sizeof(struct msg_header));
-	printf("Written\n");
-	if (ret > 0 && ret < (int) sizeof(struct msg_header)) {
-		printf("server: write %d bytes expected %u\n", ret, sizeof(struct msg_header));
-		exit(1);
-	} else if (ret < 0) {
-		perror("server write error: ");
-		exit(1);
-	}
-
-	ret = write(fd, msg.payload, msg.header.len);
-	if (ret > 0 && ret < (int) msg.header.len) {
-		printf("server: write %d bytes expected %d\n", ret, msg.header.len);
+	ret = write(fd, &msg.header, (sizeof(struct msg_header) + msg.header.len));
+	if (ret > 0 && ret < (int) (sizeof(struct msg_header) + msg.header.len)) {
+		printf("server: write %d bytes expected %u\n", ret, (sizeof(struct msg_header) + msg.header.len));
 		exit(1);
 	} else if (ret < 0) {
 		perror("server write error: ");
@@ -308,19 +285,9 @@ static void req_bytes(int fd, const unsigned char *payload, int len)
 	msg.header.type = REQ_BYTES;
 	msg.header.crc = crc8(0, msg.payload, msg.header.len);
 
-	/* Make it just one write() */
-	ret = write(fd, &msg.header, sizeof(struct msg_header));
-	if (ret > 0 && ret < (int) sizeof(struct msg_header)) {
-		printf("server: write %d bytes expected %u\n", ret, sizeof(struct msg_header));
-		exit(1);
-	} else if (ret < 0) {
-		perror("server write error: ");
-		exit(1);
-	}
-
-	ret = write(fd, msg.payload, msg.header.len);
-	if (ret > 0 && ret < (int) msg.header.len) {
-		printf("server: write %d bytes expected %d\n", ret, msg.header.len);
+	ret = write(fd, &msg.header, (sizeof(struct msg_header) + msg.header.len));
+	if (ret > 0 && ret < (int) (sizeof(struct msg_header) + msg.header.len)) {
+		printf("server: write %d bytes expected %u\n", ret, (sizeof(struct msg_header) + msg.header.len));
 		exit(1);
 	} else if (ret < 0) {
 		perror("server write error: ");
@@ -335,23 +302,17 @@ static void run_server(int fd)
 	int ret, err;
 
 	while (1) {
-		printf("Gonna read header\n");
 		ret = read(fd, &msg.header, sizeof(struct msg_header));
-		printf("READ header\n");
 		err = errno;
 		if (ret > 0 && ret < (int) sizeof(struct msg_header)) {
 			printf("server: read %d bytes expected %u\n", ret, sizeof(struct msg_header));
 			exit(1);
 		} else if (ret < 0 && err != ETIMEDOUT) {
-			/* TODO: Handle timeout. If timeout just continue. */
 			perror("server read error: ");
 			exit(1);
 		}
 
-		printf("Message header length: %d\n", msg.header.len);
-		printf("Gonna READ payload\n");
 		ret = read(fd, msg.payload, msg.header.len);
-		printf("Read payload\n");
 		err = errno;
 		if (ret > 0 && ret < msg.header.len) {
 			printf("server: read %d bytes expected %d\n", ret, msg.header.len);
@@ -361,14 +322,12 @@ static void run_server(int fd)
 			exit(1);
 		}
 
-		printf("BEFORE CRC\n");
 		ret = check_crc(&msg);
 		if (ret) {
 			printf("Bad CRC\n");
 			exit(1);
 		}
 
-		printf("BEFORE SWITCH\n");
 		switch (msg.header.type) {
 		case PING_PONG:
 			ping_pong(fd, msg.payload, msg.header.len);
@@ -413,7 +372,6 @@ int main(int argc, char *argv[])
 			arguments.mors - 1 ? "for " : "",
 			arguments.limit,
 			arguments.mors - 1 ? "seconds" : "messages");
-	}
 
 	fd = open(arguments.device, O_RDWR);
 	if (fd < 0) {
