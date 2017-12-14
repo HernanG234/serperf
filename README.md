@@ -90,5 +90,5 @@ receiveing messages of 64 bytes.
 
 - [x] Readme.md
 - [x] Add crc
-- [ ] Makefile portable (should work native and cross build)
-- [ ] travis.yml
+- [x] Makefile portable (should work native and cross build)
+- [x] travis.yml
