@@ -1,6 +1,6 @@
 ## Serperf serial device test tool
 
-[![Build Status](https://travis-ci.org/HernanG234/serperf.svg?branch=hernan/serperf-crc)](https://travis-ci.org/HernanG234/serperf#)
+[![Build Status](https://travis-ci.org/HernanG234/serperf.svg?branch=master)](https://travis-ci.org/HernanG234/serperf#)
 
 ### Intro
 
