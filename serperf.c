@@ -1,10 +1,8 @@
 #include <argp.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <linux/types.h>
 #include <stdbool.h>
 #include <stddef.h>
-#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,38 +11,6 @@
 #include <sys/ioctl.h>
 #include <time.h>
 #include <unistd.h>
-
-struct serial_params {
-	__u16 flags;
-	__u32 baud_rate;
-	__u32 data_bits;
-	__s32 rcv_timeout;
-	__s32 xmit_timeout;
-	__u32 parity;
-	__u32 stop_bits;
-	__u8 rx_fifo_trigger;
-	__u8 tx_fifo_trigger;
-	bool dma;
-	__u8 rx_fifo_dma_trigger;
-	__u8 tx_fifo_dma_trigger;
-	__u8 rx_gran;
-	__u8 tx_gran;
-};
-
-#define SERIAL_IOC_MAGIC	'h'
-#define SERIAL_GET_PARAMS	_IOR(SERIAL_IOC_MAGIC, 1, struct serial_params)
-#define SERIAL_SET_PARAMS	_IOW(SERIAL_IOC_MAGIC, 2, struct serial_params)
-
-/* params flags */
-#define BIT(nr)			(1UL << (nr))
-#define SERIAL_PARAMS_BAUDRATE		BIT(0)
-#define SERIAL_PARAMS_DATABITS		BIT(1)
-#define SERIAL_PARAMS_RCV_TIMEOUT	BIT(2)
-#define SERIAL_PARAMS_XMIT_TIMEOUT	BIT(3)
-#define SERIAL_PARAMS_PARITY		BIT(4)
-#define SERIAL_PARAMS_STOPBITS		BIT(5)
-#define SERIAL_PARAMS_FIFO_TRIGGER	BIT(6)
-
 
 enum msg_types {
 	PING_PONG,
@@ -60,12 +26,6 @@ static char args_doc[] = "-s|c (-l bytes) (-r bytes) (-t seconds) DEVICE";
 static struct argp_option options[] = {
 	{ "server", 's', 0, 0, "Server mode"},
 	{ "client", 'c', 0, 0, "Client mode"},
-	{ "config", 'f', 0, 0, "Config mode"},
-	{ "getstatus", 'g', 0, 0, "Get serial status"},
-	{ "baudrate", 'b', "baudrate", 0, "Set baudrate"},
-	{ "data-bits", 'd', "databits", 0, "Set data bits"},
-	{ "parity", 'p', "parity", 0, "Set parity"},
-	{ "stop-bits", 'o', "stopbits", 0, "Set stop bits"},
 	{ "msg-length", 'l', "length", 0, "Set message length"},
 	{ "msg-type", 'x', "type", 0, "PING_PONG = 0 | REQ_BYTES = 1"},
 	{ "req-bytes", 'r', "bytes", 0, "Request n bytes from server"},
@@ -75,12 +35,8 @@ static struct argp_option options[] = {
 };
 
 struct arguments {
-	enum { SERVER, CLIENT, CONFIG, STATUS } mode;
+	enum { SERVER, CLIENT } mode;
 	int length;
-	int baudrate;
-	int databits;
-	char parity;
-	int stopbits;
 	int type;
 	int rqbytes;
 	enum { DEFAULT, MSGS, SECONDS} mors;
@@ -104,12 +60,6 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
 	switch (key) {
 	case 's': arguments->mode = SERVER; break;
 	case 'c': arguments->mode = CLIENT; break;
-	case 'f': arguments->mode = CONFIG; break;
-	case 'g': arguments->mode = STATUS; break;
-	case 'b': arguments->baudrate = strtol(arg, NULL, 10); break;
-	case 'd': arguments->databits =  strtol(arg, NULL, 10); break;
-	case 'o': arguments->stopbits =  strtol(arg, NULL, 10); break;
-	case 'p': arguments->parity = *arg; break;
 	case 'l': arguments->length = strtol(arg, NULL, 10); break;
 	case 'x': arguments->type = strtol(arg, NULL, 10); break;
 	case 'r': arguments->rqbytes = strtol(arg, NULL, 10); break;
@@ -392,70 +342,32 @@ static void run_server(int fd)
 	}
 }
 
-static void run_config(int fd, struct serial_params *params)
-{
-	params->flags = SERIAL_PARAMS_BAUDRATE | SERIAL_PARAMS_DATABITS |
-			SERIAL_PARAMS_STOPBITS | SERIAL_PARAMS_PARITY;
-	printf("%d\n%d\n%d\n%d\n", params->baud_rate, params->data_bits,
-		params->stop_bits, params->parity);
-	ioctl(fd, SERIAL_SET_PARAMS, params);
-}
-
-static void get_status(int fd, struct serial_params *params)
-{
-	ioctl(fd, SERIAL_GET_PARAMS, params);
-	printf("Baudrate = %d\nDatabits = %d\nStopbits = %d\n",
-		       params->baud_rate, params->data_bits, params->stop_bits);
-	switch (params->parity) {
-	case 0: printf("Parity = No parity\n"); break;
-	case 3: printf("Parity = Even\n"); break;
-	case 1: printf("Parity = Odd\n"); break;
-	}
-}
-
-
 void printstatus(struct arguments arguments)
 {
-	if(arguments.mode != CONFIG && arguments.mode != STATUS){
-		printf ("Device = %s\nMode = %s\n",
-				arguments.device,
-				arguments.mode ? "Client" : "Server");
-		if (arguments.mode)
-			printf ("Message length = %d\nMessage type = %s\n",
-				arguments.length,
-				arguments.type ? "REQ_BYTES" : "PING_PONG");
-		if (arguments.type == REQ_BYTES)
-			printf ("Bytes requested to server = %d\n",
-				arguments.rqbytes);
-		if (arguments.mors)
-			printf ("Send %s%d %s\n",
-				arguments.mors - 1 ? "for " : "",
-				arguments.limit,
-				arguments.mors - 1 ? "seconds" : "messages");
-	} else if (arguments.mode == CONFIG) {
-		printf("Device = %s\nGoing to set:\nBaudrate = %d\nDatabits=%d\nStopbits = %d\n",
-		       arguments.device, arguments.baudrate, arguments.databits,
-		       arguments.stopbits);
-		switch (arguments.parity) {
-		case 'n': printf("Parity = No parity\n"); break;
-		case 'e': printf("Parity = Even\n"); break;
-		case 'o': printf("Parity = Odd\n"); break;
-		}
-	}
+	printf ("Device = %s\nMode = %s\n",
+			arguments.device,
+			arguments.mode ? "Client" : "Server");
+	if (arguments.mode)
+		printf ("Message length = %d\nMessage type = %s\n",
+			arguments.length,
+			arguments.type ? "REQ_BYTES" : "PING_PONG");
+	if (arguments.type == REQ_BYTES)
+		printf ("Bytes requested to server = %d\n",
+			arguments.rqbytes);
+	if (arguments.mors)
+		printf ("Send %s%d %s\n",
+			arguments.mors - 1 ? "for " : "",
+			arguments.limit,
+			arguments.mors - 1 ? "seconds" : "messages");
 }
 
 int main(int argc, char *argv[])
 {
 	struct arguments arguments;
-	struct serial_params params;
 	struct stat dev_stat;
 	int fd, ret;
 
 	/* Default options */
-	arguments.baudrate = 115200;
-	arguments.databits = 8;
-	arguments.stopbits = 1;
-	arguments.parity = 'n';
 	arguments.length = 1024;
 	arguments.rqbytes = 0;
 	arguments.mors = DEFAULT;
@@ -489,58 +401,11 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
-	if (arguments.baudrate < 0 || arguments.baudrate > 3688400) {
-		printf("%d bps: not a valid baudrate. Baudrate must be between 0 and 3688400\n",
-		       arguments.baudrate);
-		exit(1);
-	}
-
-	if (arguments.databits < 1 || arguments.databits > 64) {
-		printf("%d not a valid amount of databits. Must be between 1 and 64\n",
-		       arguments.databits);
-		exit(1);
-	}
-
-	if (arguments.databits < 1 || arguments.databits > 64) {
-		printf("%d not a valid amount of stopbits. Must be 1 or 2\n",
-		       arguments.databits);
-		exit(1);
-	}
-
-	if (arguments.parity != 'n' && arguments.parity != 'e' && arguments.parity != 'o') {
-			  printf("Parity must be n (no parity), e (even) or o (odd)");
-			  exit(1);
-	}
-
-	/* Default params */
-	params.flags = 0;
-	params.baud_rate = arguments.baudrate;
-	params.data_bits = arguments.databits;
-	params.rcv_timeout = 0;
-	params.xmit_timeout = 0;
-	printf("arguments.parity: %c\n", arguments.parity);
-	switch (arguments.parity) {
-	case 'n': params.parity = 0; break;
-	case 'e': params.parity = 3; break;
-	case 'o': params.parity = 1; break;
-	}
-	printf("params.parity: %d\n", params.parity);
-	params.stop_bits = arguments.stopbits;
-	params.rx_fifo_trigger = 0;
-	params.tx_fifo_trigger = 0;
-	params.dma = 0;
-	params.rx_fifo_dma_trigger = 0;
-	params.tx_fifo_dma_trigger = 0;
-	params.rx_gran = 0;
-	params.tx_gran = 0;
-
 	switch (arguments.mode) {
 	case SERVER: run_server(fd); break;
 	case CLIENT: run_client(fd, arguments.length, arguments.type,
 			   arguments.rqbytes, arguments.mors, arguments.limit);
 		     break;
-	case CONFIG: run_config(fd, &params); break;
-	case STATUS: get_status(fd, &params); break;
 	default:
 		printf("oops, unknown mode (%d). something is wrong!\n", arguments.mode);
 		exit(1);
