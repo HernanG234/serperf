@@ -134,7 +134,7 @@ static void receive_reply(int fd, struct msg *msg)
 	ret = read(fd, &msg->header, sizeof(struct msg_header));
 	err = errno;
 	if (ret > 0 && ret < (int) sizeof(struct msg_header)) {
-		printf("server: read %d bytes expected %u\n", ret, sizeof(struct msg_header));
+		printf("server: read %d bytes expected %lu\n", ret, sizeof(struct msg_header));
 		exit(1);
 	} else if (ret < 0  && err != ETIMEDOUT) {
 		/* TODO: Handle timeout. If timeout just continue. */
@@ -169,7 +169,7 @@ static void send_msg(int fd, int len, int type, int rqbytes)
 
 	ret = write(fd, &msg.header, (sizeof(struct msg_header) + msg.header.len));
 	if (ret > 0 && ret < (int) (sizeof(struct msg_header) + msg.header.len)) {
-		printf("server: write %d bytes expected %u\n", ret, (sizeof(struct msg_header) + msg.header.len));
+		printf("server: write %d bytes expected %lu\n", ret, (sizeof(struct msg_header) + msg.header.len));
 		exit(1);
 	} else if (ret < 0) {
 		perror("server write error: ");
@@ -267,7 +267,7 @@ static void ping_pong(int fd, const unsigned char *payload, int len)
 
 	ret = write(fd, &msg.header, (sizeof(struct msg_header) + msg.header.len));
 	if (ret > 0 && ret < (int) (sizeof(struct msg_header) + msg.header.len)) {
-		printf("server: write %d bytes expected %u\n", ret, (sizeof(struct msg_header) + msg.header.len));
+		printf("server: write %d bytes expected %lu\n", ret, (sizeof(struct msg_header) + msg.header.len));
 		exit(1);
 	} else if (ret < 0) {
 		perror("server write error: ");
@@ -287,7 +287,7 @@ static void req_bytes(int fd, const unsigned char *payload, int len)
 
 	ret = write(fd, &msg.header, (sizeof(struct msg_header) + msg.header.len));
 	if (ret > 0 && ret < (int) (sizeof(struct msg_header) + msg.header.len)) {
-		printf("server: write %d bytes expected %u\n", ret, (sizeof(struct msg_header) + msg.header.len));
+		printf("server: write %d bytes expected %lu\n", ret, (sizeof(struct msg_header) + msg.header.len));
 		exit(1);
 	} else if (ret < 0) {
 		perror("server write error: ");
@@ -305,7 +305,7 @@ static void run_server(int fd)
 		ret = read(fd, &msg.header, sizeof(struct msg_header));
 		err = errno;
 		if (ret > 0 && ret < (int) sizeof(struct msg_header)) {
-			printf("server: read %d bytes expected %u\n", ret, sizeof(struct msg_header));
+			printf("server: read %d bytes expected %lu\n", ret, sizeof(struct msg_header));
 			exit(1);
 		} else if (ret < 0 && err != ETIMEDOUT) {
 			perror("server read error: ");
