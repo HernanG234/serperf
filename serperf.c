@@ -2,6 +2,7 @@
 #include <asm/types.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <pthread.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -54,7 +55,8 @@ struct serial_rw_msg {
 enum msg_types {
 	PING_PONG,
 	REQ_BYTES,
-	MSG_TYPES
+	MSG_TYPES,
+	LOOPBACK
 };
 
 const char *argp_program_version = "serperf 2.0.0";
@@ -65,6 +67,7 @@ static char args_doc[] = "-s|c (-l bytes) (-r bytes) (-t seconds) DEVICE";
 static struct argp_option options[] = {
 	{ "server", 's', 0, 0, "Server mode"},
 	{ "client", 'c', 0, 0, "Client mode"},
+	{ "loopback", 'p', 0, 0, "Loopback mode"},
 	{ "msg-length", 'l', "length", 0, "Set message length"},
 	{ "msg-type", 'x', "type", 0, "PING_PONG = 0 | REQ_BYTES = 1"},
 	{ "req-bytes", 'r', "bytes", 0, "Request n bytes from server"},
@@ -77,7 +80,7 @@ static struct argp_option options[] = {
 };
 
 struct arguments {
-	enum { SERVER, CLIENT } mode;
+	enum { SERVER, CLIENT, LOOP } mode;
 	int length;
 	int type;
 	int rqbytes;
@@ -97,12 +100,18 @@ struct msg {
 	unsigned char payload[MAX_PAYLOAD_LEN]; /* alloc dynamically */
 };
 
+struct loopback {
+	struct arguments arguments;
+	int fd;
+};
+
 static error_t parse_opt(int key, char *arg, struct argp_state *state) {
 	struct arguments *arguments = state->input;
 	switch (key) {
 	case 's': arguments->mode = SERVER; break;
 	case 'c': arguments->mode = CLIENT; break;
 	case 'v': verb = true; break;
+	case 'p': arguments->mode = LOOP; break;
 	case 'l': arguments->length = strtol(arg, NULL, 10); break;
 	case 'x': arguments->type = strtol(arg, NULL, 10); break;
 	case 'r': arguments->rqbytes = strtol(arg, NULL, 10); break;
@@ -324,7 +333,7 @@ static void do_check(const unsigned char *payload, char *cmp, int msglen, int ty
 }
 
 static void run_client_msgs(int fd, int len, int type, int rqbytes,
-			    char *cmp, int limit)
+			    char *cmp, int limit, bool loopback)
 {
 	struct msg msg;
 	int count = 0;
@@ -334,15 +343,17 @@ static void run_client_msgs(int fd, int len, int type, int rqbytes,
 		send_msg(fd, len, type, rqbytes);
 		wmsgs++;
 		count++;
-		receive_reply(fd, &msg);
-		rmsgs++;
-		do_check(msg.payload, cmp, msg.header.len, type, rqbytes);
+		if (!loopback) {
+			receive_reply(fd, &msg);
+			rmsgs++;
+			do_check(msg.payload, cmp, msg.header.len, type, rqbytes);
+		}
 	}
 	printf("Finished sending %d messages\n", limit);
 }
 
 static void run_client_seconds(int fd, int len, int type, int rqbytes,
-			       char *cmp, int limit)
+			       char *cmp, int limit, bool loopback)
 {
 	struct msg msg;
 	struct timeval tval_before, tval_after, tval_result;
@@ -354,9 +365,11 @@ static void run_client_seconds(int fd, int len, int type, int rqbytes,
 	while ((long int)tval_result.tv_sec < limit) {
 		send_msg(fd, len, type, rqbytes);
 		wmsgs++;
-		receive_reply(fd, &msg);
-		rmsgs++;
-		do_check(msg.payload, cmp, msg.header.len, type, rqbytes);
+		if (!loopback) {
+			receive_reply(fd, &msg);
+			rmsgs++;
+			do_check(msg.payload, cmp, msg.header.len, type, rqbytes);
+		}
 		gettimeofday(&tval_after, NULL);
 		timersub(&tval_after, &tval_before, &tval_result);
 	}
@@ -373,10 +386,10 @@ static void run_client(int fd, int len, int type, int rqbytes,
 	memset(cmp, 0x55, len);
 	switch (mors) {
 	case MSGS:
-		run_client_msgs(fd, len, type, rqbytes, cmp, limit);
+		run_client_msgs(fd, len, type, rqbytes, cmp, limit, false);
 		break;
 	case SECONDS:
-		run_client_seconds(fd, len, type, rqbytes, cmp, limit);
+		run_client_seconds(fd, len, type, rqbytes, cmp, limit, false);
 		break;
 	default:
 		while (1) {
@@ -422,6 +435,7 @@ static void req_bytes(int fd, const unsigned char *payload, int len)
 	verbose("Server: %s\n", __func__);
 	memcpy(&msg.header.len, payload, len);
 	memset(msg.payload, 0x55, msg.header.len);
+	msg.payload[msg.header.len - 1] = 0xFF;
 	msg.header.type = REQ_BYTES;
 	msg.header.crc = crc8(0, msg.payload, msg.header.len);
 
@@ -537,6 +551,104 @@ static void run_server(int fd)
 	}
 }
 
+void *serial_reader (void *arg) {
+	struct timeval tval_before, tval_after, tval_result;
+	struct loopback *lb = (struct loopback *)arg;
+	struct msg msg;
+	int ret, i;
+
+	verbose("Loopback: %s\n", __func__);
+	switch (lb->arguments.mors) {
+	case MSGS:
+		verbose("Loopback: Reader: Msgs mode\n");
+		for (i = 0; i < lb->arguments.limit; i++) {
+			ret = read_msg(lb->fd, &msg);
+			ret = check_crc(&msg);
+			if (ret) {
+				printf("Bad CRC\n");
+				exit_print();
+				exit(1);
+			}
+			rmsgs++;
+		}
+		break;
+	case SECONDS:
+		verbose("Loopback: Reader: Seconds mode\n");
+		gettimeofday(&tval_before, NULL);
+		gettimeofday(&tval_after, NULL);
+		timersub(&tval_after, &tval_before, &tval_result);
+
+		while ((long int)tval_result.tv_sec < lb->arguments.limit) {
+			ret = read_msg(lb->fd, &msg);
+			ret = check_crc(&msg);
+			if (ret) {
+				printf("Bad CRC\n");
+				exit_print();
+				exit(1);
+			}
+			rmsgs++;
+			gettimeofday(&tval_after, NULL);
+			timersub(&tval_after, &tval_before, &tval_result);
+		}
+		break;
+	default:
+		verbose("Loopback: Reader: Infinite mode\n");
+		while (1) {
+			ret = read_msg(lb->fd, &msg);
+			ret = check_crc(&msg);
+			if (ret) {
+				printf("Bad CRC\n");
+				exit_print();
+				exit(1);
+			}
+			rmsgs++;
+		}
+	}
+	return NULL;
+}
+
+void *serial_writer (void *arg) {
+	struct loopback *lb = (struct loopback *)arg;
+
+	verbose("Loopback: %s\n", __func__);
+	switch (lb->arguments.mors) {
+	case MSGS:
+		verbose("Loopback: Writer: Msgs mode\n");
+		run_client_msgs(lb->fd, lb->arguments.length,
+				lb->arguments.type, lb->arguments.rqbytes, NULL,
+				lb->arguments.limit, true);
+		break;
+	case SECONDS:
+		verbose("Loopback: Writer: Seconds mode\n");
+		run_client_seconds(lb->fd, lb->arguments.length,
+				   lb->arguments.type, lb->arguments.rqbytes,
+				   NULL, lb->arguments.limit, true);
+		break;
+	default:
+		verbose("Loopback: Writer: Infinite mode\n");
+		while (1) {
+			send_msg(lb->fd, lb->arguments.length,
+				 lb->arguments.type, lb->arguments.rqbytes);
+			wmsgs++;
+		}
+	}
+
+	return NULL;
+}
+
+
+static void run_loopback(struct loopback lb)
+{
+	void *result;
+
+	verbose("Loopback: %s: Launching threads\n", __func__);
+	pthread_t s_reader, s_writer;
+	pthread_create (&s_reader, NULL, serial_reader, &lb);
+	pthread_create (&s_writer, NULL, serial_writer, &lb);
+	pthread_join (s_writer, &result);
+	pthread_cancel(s_reader);
+}
+
 void printstatus(struct arguments arguments)
 {
 	printf ("Device = %s\nMode = %s\n",
@@ -560,6 +672,7 @@ int main(int argc, char *argv[])
 {
 	struct arguments arguments;
 	struct stat dev_stat;
+	struct loopback lb;
 	int fd, ret;
 
 	gettimeofday(&tval_before, NULL);
@@ -609,13 +722,22 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
+	lb.arguments = arguments;
+	lb.fd = fd;
+
 	switch (arguments.mode) {
-	case SERVER: run_server(fd); break;
-	case CLIENT: run_client(fd, arguments.length, arguments.type,
+	case SERVER:
+		run_server(fd); break;
+	case CLIENT:
+		run_client(fd, arguments.length, arguments.type,
 			   arguments.rqbytes, arguments.mors, arguments.limit);
-		     break;
+		break;
+	case LOOP:
+		run_loopback(lb);
+		break;
 	default:
-		printf("oops, unknown mode (%d). something is wrong!\n", arguments.mode);
+		printf("oops, unknown mode (%d). something is wrong!\n",
+		       arguments.mode);
 		exit(1);
 
 	}
