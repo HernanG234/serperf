@@ -9,6 +9,7 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
@@ -33,6 +34,8 @@
 #define SERIAL_WAIT_FOR_XMIT            BIT(0)
 
 bool Verbose = false;
+int rmsgs = 0;
+int wmsgs = 0;
 
 enum msg_types {
 	PING_PONG,
@@ -250,8 +253,10 @@ static void run_client_msgs(int fd, int len, int type, int rqbytes,
 	verbose("Client: %s\n", __func__);
 	while (count < limit) {
 		send_msg(fd, len, type, rqbytes);
+		wmsgs++;
 		count++;
 		receive_reply(fd, &msg);
+		rmsgs++;
 		do_check(msg.payload, cmp, msg.header.len, type, rqbytes);
 	}
 	printf("Finished sending %d messages\n", limit);
@@ -291,9 +296,10 @@ static void run_client(int fd, int len, int type, int rqbytes,
 		break;
 	default:
 		while (1) {
-			/* TODO: Timeout not fatal everywhere! */
 			send_msg(fd, len, type, rqbytes);
+			wmsgs++;
 			receive_reply(fd, &msg);
+			rmsgs++;
 			do_check(msg.payload, cmp, msg.header.len, type, rqbytes);
 		}
 	}
@@ -319,6 +325,7 @@ static void ping_pong(int fd, const unsigned char *payload, int len)
 		perror("server write error: ");
 		exit(1);
 	}
+	wmsgs++;
 }
 
 static void req_bytes(int fd, const unsigned char *payload, int len)
@@ -422,6 +429,7 @@ static void run_server(int fd)
 			exit(1);
 		}
 
+		rmsgs++;
 		switch (msg.header.type) {
 		case PING_PONG:
 			ping_pong(fd, msg.payload, msg.header.len);
@@ -460,6 +468,9 @@ int main(int argc, char *argv[])
 	struct arguments arguments;
 	struct stat dev_stat;
 	int fd, ret;
+
+	struct timeval tval_before, tval_after, tval_result;
+	gettimeofday(&tval_before, NULL);
 
 	verbose("Initializing...\n");
 	/* Default options */
@@ -515,5 +526,12 @@ int main(int argc, char *argv[])
 	}
 
 	close(fd);
+	printf("\nTotal msgs READ: \t%d msgs\n", rmsgs);
+	printf("Total msgs WRITTEN: \t%d msgs\n", wmsgs);
+
+	gettimeofday(&tval_after, NULL);
+	timersub(&tval_after, &tval_before, &tval_result);
+	printf("Time elapsed: %ld.%06ld\n",
+	       (long int)tval_result.tv_sec, (long int)tval_result.tv_usec);
 	return 0;
 }
