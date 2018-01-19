@@ -1,6 +1,7 @@
 #include <argp.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -31,6 +32,8 @@
 
 #define SERIAL_WAIT_FOR_XMIT            BIT(0)
 
+bool Verbose = false;
+
 enum msg_types {
 	PING_PONG,
 	REQ_BYTES,
@@ -50,6 +53,7 @@ static struct argp_option options[] = {
 	{ "req-bytes", 'r', "bytes", 0, "Request n bytes from server"},
 	{ "messages", 'm', "msgs", 0, "Client: Number of msgs to send"},
 	{ "time", 't', "seconds", 0, "Client: Seconds to transmit data"},
+	{ "verbose", 'v', 0, 0, "Verbose mode"},
 	{ 0 }
 };
 
@@ -79,6 +83,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
 	switch (key) {
 	case 's': arguments->mode = SERVER; break;
 	case 'c': arguments->mode = CLIENT; break;
+	case 'v': Verbose = true; break;
 	case 'l': arguments->length = strtol(arg, NULL, 10); break;
 	case 'x': arguments->type = strtol(arg, NULL, 10); break;
 	case 'r': arguments->rqbytes = strtol(arg, NULL, 10); break;
@@ -146,14 +151,29 @@ int check_crc(struct msg *msg)
 	return 0;
 }
 
+int verbose(const char *format, ...)
+{
+	if (!Verbose)
+		return 0;
+
+	va_list args;
+	va_start(args, format);
+	int ret = vprintf(format, args);
+	va_end(args);
+
+	return ret;
+}
+
 static void receive_reply(int fd, struct msg *msg)
 {
 	int ret, err;
 
+	verbose("Client: %s\n", __func__);
+	verbose("Client: Reading header\n");
 	ret = read(fd, &msg->header, sizeof(struct msg_header));
 	err = errno;
 	if (ret > 0 && ret < (int) sizeof(struct msg_header)) {
-		printf("server: read %d bytes expected %lu\n", ret, sizeof(struct msg_header));
+		printf("server: read %d bytes expected %u\n", ret, sizeof(struct msg_header));
 		exit(1);
 	} else if (ret < 0  && err != ETIMEDOUT) {
 		/* TODO: Handle timeout. If timeout just continue. */
@@ -161,6 +181,7 @@ static void receive_reply(int fd, struct msg *msg)
 		exit(1);
 	}
 
+	verbose("Client: Reading payload\n");
 	ret = read(fd, msg->payload, msg->header.len);
 	if (ret > 0 && ret < (int) msg->header.len) {
 		printf("server: read %d bytes expected %d\n", ret, msg->header.len);
@@ -176,6 +197,7 @@ static void send_msg(int fd, int len, int type, int rqbytes)
 	struct msg msg;
 	int ret;
 
+	verbose("Client: %s\n", __func__);
 	msg.header.type = type;
 	if (type == REQ_BYTES){
 		memcpy(msg.payload, &rqbytes, 4);
@@ -186,9 +208,10 @@ static void send_msg(int fd, int len, int type, int rqbytes)
 	}
 	msg.header.crc = crc8(0, msg.payload, msg.header.len);
 
+	verbose("Client: Writing\n");
 	ret = write(fd, &msg.header, (sizeof(struct msg_header) + msg.header.len));
 	if (ret > 0 && ret < (int) (sizeof(struct msg_header) + msg.header.len)) {
-		printf("server: write %d bytes expected %lu\n", ret, (sizeof(struct msg_header) + msg.header.len));
+		printf("server: write %d bytes expected %u\n", ret, (sizeof(struct msg_header) + msg.header.len));
 		exit(1);
 	} else if (ret < 0) {
 		perror("server write error: ");
@@ -199,6 +222,7 @@ static void send_msg(int fd, int len, int type, int rqbytes)
 static void do_check(const unsigned char *payload, char *cmp, int msglen, int type,
 		     int rqbytes)
 {
+	verbose("Client: %s\n", __func__);
 	switch (type) {
 	case REQ_BYTES:
 		if (msglen != rqbytes) {
@@ -223,8 +247,8 @@ static void run_client_msgs(int fd, int len, int type, int rqbytes,
 	struct msg msg;
 	int count = 0;
 
+	verbose("Client: %s\n", __func__);
 	while (count < limit) {
-		/* TODO: Timeout not fatal everywhere! */
 		send_msg(fd, len, type, rqbytes);
 		count++;
 		receive_reply(fd, &msg);
@@ -240,8 +264,8 @@ static void run_client_seconds(int fd, int len, int type, int rqbytes,
 	long int start = (long int) time(NULL);
 	long int count = (long int) (time(NULL) - start);
 
+	verbose("Client: %s\n", __func__);
 	while (count < limit) {
-		/* TODO: Timeout not fatal everywhere! */
 		send_msg(fd, len, type, rqbytes);
 		receive_reply(fd, &msg);
 		do_check(msg.payload, cmp, msg.header.len, type, rqbytes);
@@ -256,6 +280,7 @@ static void run_client(int fd, int len, int type, int rqbytes,
 	struct msg msg;
 	char cmp[len];
 
+	verbose("Starting Client...\n");
 	memset(cmp, 0x55, len);
 	switch (mors) {
 	case MSGS:
@@ -279,14 +304,16 @@ static void ping_pong(int fd, const unsigned char *payload, int len)
 	struct msg msg;
 	int ret;
 
+	verbose("Server: %s\n", __func__);
 	memcpy(msg.payload, payload, len);
 	msg.header.type = PING_PONG;
 	msg.header.len = len;
 	msg.header.crc = crc8(0, msg.payload, msg.header.len);
 
+	verbose("Server: Writing\n");
 	ret = write(fd, &msg.header, (sizeof(struct msg_header) + msg.header.len));
 	if (ret > 0 && ret < (int) (sizeof(struct msg_header) + msg.header.len)) {
-		printf("server: write %d bytes expected %lu\n", ret, (sizeof(struct msg_header) + msg.header.len));
+		printf("server: write %d bytes expected %u\n", ret, (sizeof(struct msg_header) + msg.header.len));
 		exit(1);
 	} else if (ret < 0) {
 		perror("server write error: ");
@@ -299,14 +326,16 @@ static void req_bytes(int fd, const unsigned char *payload, int len)
 	struct msg msg;
 	int ret;
 
+	verbose("Server: %s\n", __func__);
 	memcpy(&msg.header.len, payload, len);
 	memset(msg.payload, 0x55, msg.header.len);
 	msg.header.type = REQ_BYTES;
 	msg.header.crc = crc8(0, msg.payload, msg.header.len);
 
+	verbose("Server: Writing\n");
 	ret = write(fd, &msg.header, (sizeof(struct msg_header) + msg.header.len));
 	if (ret > 0 && ret < (int) (sizeof(struct msg_header) + msg.header.len)) {
-		printf("server: write %d bytes expected %lu\n", ret, (sizeof(struct msg_header) + msg.header.len));
+		printf("server: write %d bytes expected %u\n", ret, (sizeof(struct msg_header) + msg.header.len));
 		exit(1);
 	} else if (ret < 0) {
 		perror("server write error: ");
@@ -320,6 +349,7 @@ static void run_server(int fd)
 	struct msg msg;
 	int ret, err;
 
+	verbose("Starting Server...\n");
 	while (1) {
 		ret = read(fd, &msg.header, sizeof(struct msg_header));
 		err = errno;
@@ -386,6 +416,7 @@ int main(int argc, char *argv[])
 	struct stat dev_stat;
 	int fd, ret;
 
+	verbose("Initializing...\n");
 	/* Default options */
 	arguments.length = 1024;
 	arguments.rqbytes = 0;
@@ -414,6 +445,7 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
+	verbose("Erasing buffers\n");
 	ret = ioctl(fd, SERIAL_RX_BUFFER_CLEAR);
 	if (ret < 0) {
 		perror("ioctl error: ");
