@@ -6,11 +6,30 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <sys/ioctl.h>
 #include <time.h>
 #include <unistd.h>
+
+/* ioctl flags */
+#define SERIAL_IOC_MAGIC        'h'
+#define SERIAL_GET_PARAMS       _IOR(SERIAL_IOC_MAGIC, 1, struct serial_params)
+#define SERIAL_SET_PARAMS       _IOW(SERIAL_IOC_MAGIC, 2, struct serial_params)
+#define SERIAL_RX_BUFFER_CLEAR  _IO(SERIAL_IOC_MAGIC, 3)
+#define SERIAL_READ_IOC         _IOWR(SERIAL_IOC_MAGIC, 4, struct serial_rw_msg)
+#define SERIAL_WRITE_IOC        _IOWR(SERIAL_IOC_MAGIC, 5, struct serial_rw_msg)
+
+/* params flags */
+#define SERIAL_PARAMS_BAUDRATE          BIT(0)
+#define SERIAL_PARAMS_DATABITS          BIT(1)
+#define SERIAL_PARAMS_RCV_TIMEOUT       BIT(2)
+#define SERIAL_PARAMS_XMIT_TIMEOUT      BIT(3)
+#define SERIAL_PARAMS_PARITY            BIT(4)
+#define SERIAL_PARAMS_STOPBITS          BIT(5)
+#define SERIAL_PARAMS_FIFO_TRIGGER      BIT(6)
+
+#define SERIAL_WAIT_FOR_XMIT            BIT(0)
 
 enum msg_types {
 	PING_PONG,
@@ -392,6 +411,12 @@ int main(int argc, char *argv[])
 
 	if (!S_ISCHR(dev_stat.st_mode)) {
 		printf ("%s is not a character device/n", arguments.device);
+		exit(1);
+	}
+
+	ret = ioctl(fd, SERIAL_RX_BUFFER_CLEAR);
+	if (ret < 0) {
+		perror("ioctl error: ");
 		exit(1);
 	}
 
