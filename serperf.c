@@ -266,15 +266,18 @@ static void run_client_seconds(int fd, int len, int type, int rqbytes,
 			       char *cmp, int limit)
 {
 	struct msg msg;
-	long int start = (long int) time(NULL);
-	long int count = (long int) (time(NULL) - start);
+	struct timeval tval_before, tval_after, tval_result;
+	gettimeofday(&tval_before, NULL);
 
 	verbose("Client: %s\n", __func__);
-	while (count < limit) {
+	while ((long int)tval_result.tv_sec < limit) {
 		send_msg(fd, len, type, rqbytes);
+		wmsgs++;
 		receive_reply(fd, &msg);
+		rmsgs++;
 		do_check(msg.payload, cmp, msg.header.len, type, rqbytes);
-		count = (long int) (time(NULL) - start);
+		gettimeofday(&tval_after, NULL);
+		timersub(&tval_after, &tval_before, &tval_result);
 	}
 	printf("Finished sending data for %d seconds\n", limit);
 }
