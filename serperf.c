@@ -343,34 +343,79 @@ static void req_bytes(int fd, const unsigned char *payload, int len)
 	}
 }
 
+static int read_header(int fd, struct msg *msg, bool *timeout)
+{
+	int ret;
+
+	*timeout = false;
+	verbose("Server: Reading header\n");
+	ret = read(fd, &msg->header, sizeof(struct msg_header));
+	printf("ret: %d\n", ret);
+	if (ret > 0 && ret < (int) sizeof(struct msg_header)) {
+		printf("server: read %d bytes expected %u\n",
+		       ret, sizeof(struct msg_header));
+		exit(1);
+	} else if (ret < 0 && errno != ETIMEDOUT) {
+		perror("server read error: ");
+		exit(1);
+	} else if (ret < 0 && errno == ETIMEDOUT) {
+		*timeout = true;
+	}
+
+	return ret;
+}
+
+static int read_payload(int fd, struct msg *msg, bool *timeout)
+{
+	int ret;
+
+	*timeout = false;
+	verbose("Server: Reading payload\n");
+	ret = read(fd, &msg->payload, msg->header.len);
+	if (ret > 0 && ret < msg->header.len) {
+		printf("server: read %d bytes expected %d\n",
+		       ret, msg->header.len);
+		exit(1);
+	} else if (ret < 0 && errno != ETIMEDOUT) {
+		perror("read error: ");
+		exit(1);
+	} else if (ret < 0 && errno == ETIMEDOUT) {
+		*timeout = true;
+	}
+
+	return ret;
+}
+
+static int read_msg(int fd, struct msg *msg)
+{
+	int ret;
+	bool timeout = false;
+	bool done = false;
+
+	while (!done) {
+		ret = read_header(fd, msg, &timeout);
+		verbose("Server: Read %d bytes as header\n", ret);
+		if (timeout)
+			continue;
+
+		ret = read_payload(fd, msg, &timeout);
+		verbose("Server: Read %d bytes as payload\n", ret);
+		if (timeout)
+			continue;
+		done = true;
+	}
+
+	return ret;
+}
 
 static void run_server(int fd)
 {
 	struct msg msg;
-	int ret, err;
+	int ret;
 
 	verbose("Starting Server...\n");
 	while (1) {
-		ret = read(fd, &msg.header, sizeof(struct msg_header));
-		err = errno;
-		if (ret > 0 && ret < (int) sizeof(struct msg_header)) {
-			printf("server: read %d bytes expected %lu\n", ret, sizeof(struct msg_header));
-			exit(1);
-		} else if (ret < 0 && err != ETIMEDOUT) {
-			perror("server read error: ");
-			exit(1);
-		}
-
-		ret = read(fd, msg.payload, msg.header.len);
-		err = errno;
-		if (ret > 0 && ret < msg.header.len) {
-			printf("server: read %d bytes expected %d\n", ret, msg.header.len);
-			exit(1);
-		} else if (ret < 0 && err != -60) {
-			perror("read error: ");
-			exit(1);
-		}
-
+		ret = read_msg(fd, &msg);
 		ret = check_crc(&msg);
 		if (ret) {
 			printf("Bad CRC\n");
