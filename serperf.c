@@ -431,6 +431,7 @@ static void req_bytes(int fd, const unsigned char *payload, int len)
 		exit_print();
 		exit(1);
 	}
+	wmsgs++;
 }
 
 static int read_header(int fd, struct msg *msg, bool *timeout)
