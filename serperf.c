@@ -2,6 +2,7 @@
 #include <asm/types.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -35,6 +36,7 @@
 
 #define SERIAL_WAIT_FOR_XMIT            BIT(0)
 
+struct timeval tval_before, tval_after, tval_result;
 bool Verbose = false;
 int rmsgs = 0;
 int wmsgs = 0;
@@ -168,6 +170,25 @@ int check_crc(struct msg *msg)
 	return 0;
 }
 
+void exit_print()
+{
+	printf("\nTotal msgs READ: \t%d msgs\n", rmsgs);
+	printf("Total msgs WRITTEN: \t%d msgs\n", wmsgs);
+
+	gettimeofday(&tval_after, NULL);
+	timersub(&tval_after, &tval_before, &tval_result);
+	printf("Time elapsed: %ld.%06ld\n",
+	       (long int)tval_result.tv_sec, (long int)tval_result.tv_usec);
+}
+
+void int_handler(int signo)
+{
+	if (signo == SIGINT) {
+		exit_print();
+		exit(1);
+	}
+}
+
 ssize_t serial_read(int fd, void *buf, size_t count)
 {
 	struct serial_rw_msg rw_msg;
@@ -224,20 +245,24 @@ static void receive_reply(int fd, struct msg *msg)
 	err = errno;
 	if (ret > 0 && ret < (int) sizeof(struct msg_header)) {
 		printf("server: read %d bytes expected %u\n", ret, sizeof(struct msg_header));
+		exit_print();
 		exit(1);
 	} else if (ret < 0  && err != ETIMEDOUT) {
 		/* TODO: Handle timeout. If timeout just continue. */
 		perror("server read error: ");
+		exit_print();
 		exit(1);
 	}
 
 	verbose("Client: Reading payload\n");
 	ret = serial_read(fd, msg->payload, msg->header.len);
 	if (ret > 0 && ret < (int) msg->header.len) {
-		printf("server: read %d bytes expected %d\n", ret, msg->header.len);
+		printf("Client: read %d bytes expected %d\n", ret, msg->header.len);
+		exit_print();
 		exit(1);
 	} else if (ret < 0) {
-		perror("read error: ");
+		perror("Client: read error: ");
+		exit_print();
 		exit(1);
 	}
 }
@@ -261,10 +286,12 @@ static void send_msg(int fd, int len, int type, int rqbytes)
 	verbose("Client: Writing\n");
 	ret = serial_write(fd, &msg.header, (sizeof(struct msg_header) + msg.header.len));
 	if (ret > 0 && ret < (int) (sizeof(struct msg_header) + msg.header.len)) {
-		printf("server: write %d bytes expected %u\n", ret, (sizeof(struct msg_header) + msg.header.len));
+		printf("Client: write %d bytes expected %u\n", ret, (sizeof(struct msg_header) + msg.header.len));
+		exit_print();
 		exit(1);
 	} else if (ret < 0) {
-		perror("server write error: ");
+		perror("Client: write error: ");
+		exit_print();
 		exit(1);
 	}
 }
@@ -279,12 +306,14 @@ static void do_check(const unsigned char *payload, char *cmp, int msglen, int ty
 			printf("client: server reply does not have match with"
 			       " the bytes requested (requested = %d) (got = %d)\n",
 			       rqbytes, msglen);
+			exit_print();
 			exit(1);
 		}
 		break;
 	case PING_PONG:
 		if (memcmp(payload, cmp, msglen)) {
 			printf("client: server reply is %s not the same\n", payload);
+			exit_print();
 			exit(1);
 		}
 	}
@@ -370,9 +399,11 @@ static void ping_pong(int fd, const unsigned char *payload, int len)
 	ret = serial_write(fd, &msg.header, (sizeof(struct msg_header) + msg.header.len));
 	if (ret > 0 && ret < (int) (sizeof(struct msg_header) + msg.header.len)) {
 		printf("server: write %d bytes expected %u\n", ret, (sizeof(struct msg_header) + msg.header.len));
+		exit_print();
 		exit(1);
 	} else if (ret < 0) {
 		perror("server write error: ");
+		exit_print();
 		exit(1);
 	}
 	wmsgs++;
@@ -393,9 +424,11 @@ static void req_bytes(int fd, const unsigned char *payload, int len)
 	ret = serial_write(fd, &msg.header, (sizeof(struct msg_header) + msg.header.len));
 	if (ret > 0 && ret < (int) (sizeof(struct msg_header) + msg.header.len)) {
 		printf("server: write %d bytes expected %u\n", ret, (sizeof(struct msg_header) + msg.header.len));
+		exit_print();
 		exit(1);
 	} else if (ret < 0) {
 		perror("server write error: ");
+		exit_print();
 		exit(1);
 	}
 }
@@ -410,9 +443,11 @@ static int read_header(int fd, struct msg *msg, bool *timeout)
 	if (ret > 0 && ret < (int) sizeof(struct msg_header)) {
 		printf("server: read %d bytes expected %u\n",
 		       ret, sizeof(struct msg_header));
+		exit_print();
 		exit(1);
 	} else if (ret < 0 && errno != ETIMEDOUT) {
 		perror("server read error: ");
+		exit_print();
 		exit(1);
 	} else if (ret < 0 && errno == ETIMEDOUT) {
 		*timeout = true;
@@ -431,9 +466,11 @@ static int read_payload(int fd, struct msg *msg, bool *timeout)
 	if (ret > 0 && ret < msg->header.len) {
 		printf("server: read %d bytes expected %d\n",
 		       ret, msg->header.len);
+		exit_print();
 		exit(1);
 	} else if (ret < 0 && errno != ETIMEDOUT) {
 		perror("read error: ");
+		exit_print();
 		exit(1);
 	} else if (ret < 0 && errno == ETIMEDOUT) {
 		*timeout = true;
@@ -475,6 +512,7 @@ static void run_server(int fd)
 		ret = check_crc(&msg);
 		if (ret) {
 			printf("Bad CRC\n");
+			exit_print();
 			exit(1);
 		}
 
@@ -488,6 +526,7 @@ static void run_server(int fd)
 			break;
 		default:
 			printf("oops, unknown message type (%d). something is wrong!\n", msg.header.type);
+			exit_print();
 			exit(1);
 		}
 	}
@@ -518,10 +557,12 @@ int main(int argc, char *argv[])
 	struct stat dev_stat;
 	int fd, ret;
 
-	struct timeval tval_before, tval_after, tval_result;
 	gettimeofday(&tval_before, NULL);
 
 	verbose("Initializing...\n");
+
+	signal(SIGINT, int_handler);
+
 	/* Default options */
 	arguments.length = 1024;
 	arguments.rqbytes = 0;
@@ -575,12 +616,6 @@ int main(int argc, char *argv[])
 	}
 
 	close(fd);
-	printf("\nTotal msgs READ: \t%d msgs\n", rmsgs);
-	printf("Total msgs WRITTEN: \t%d msgs\n", wmsgs);
-
-	gettimeofday(&tval_after, NULL);
-	timersub(&tval_after, &tval_before, &tval_result);
-	printf("Time elapsed: %ld.%06ld\n",
-	       (long int)tval_result.tv_sec, (long int)tval_result.tv_usec);
+	exit_print();
 	return 0;
 }
