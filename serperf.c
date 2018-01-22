@@ -540,7 +540,7 @@ void printstatus(struct arguments arguments)
 			arguments.mode ? "Client" : "Server");
 	if (arguments.mode)
 		printf ("Message length = %d\nMessage type = %s\n",
-			arguments.length,
+			arguments.type ? 4 : arguments.length,
 			arguments.type ? "REQ_BYTES" : "PING_PONG");
 	if (arguments.type == REQ_BYTES)
 		printf ("Bytes requested to server = %d\n",
