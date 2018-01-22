@@ -244,7 +244,7 @@ static void receive_reply(int fd, struct msg *msg)
 	ret = serial_read(fd, &msg->header, sizeof(struct msg_header));
 	err = errno;
 	if (ret > 0 && ret < (int) sizeof(struct msg_header)) {
-		printf("server: read %d bytes expected %u\n", ret, sizeof(struct msg_header));
+		printf("server: read %d bytes expected %zu\n", ret, sizeof(struct msg_header));
 		exit_print();
 		exit(1);
 	} else if (ret < 0  && err != ETIMEDOUT) {
@@ -286,7 +286,7 @@ static void send_msg(int fd, int len, int type, int rqbytes)
 	verbose("Client: Writing\n");
 	ret = serial_write(fd, &msg.header, (sizeof(struct msg_header) + msg.header.len));
 	if (ret > 0 && ret < (int) (sizeof(struct msg_header) + msg.header.len)) {
-		printf("Client: write %d bytes expected %u\n", ret, (sizeof(struct msg_header) + msg.header.len));
+		printf("Client: write %d bytes expected %zu\n", ret, (sizeof(struct msg_header) + msg.header.len));
 		exit_print();
 		exit(1);
 	} else if (ret < 0) {
@@ -398,7 +398,7 @@ static void ping_pong(int fd, const unsigned char *payload, int len)
 	verbose("Server: Writing\n");
 	ret = serial_write(fd, &msg.header, (sizeof(struct msg_header) + msg.header.len));
 	if (ret > 0 && ret < (int) (sizeof(struct msg_header) + msg.header.len)) {
-		printf("server: write %d bytes expected %u\n", ret, (sizeof(struct msg_header) + msg.header.len));
+		printf("server: write %d bytes expected %zu\n", ret, (sizeof(struct msg_header) + msg.header.len));
 		exit_print();
 		exit(1);
 	} else if (ret < 0) {
@@ -423,7 +423,7 @@ static void req_bytes(int fd, const unsigned char *payload, int len)
 	verbose("Server: Writing\n");
 	ret = serial_write(fd, &msg.header, (sizeof(struct msg_header) + msg.header.len));
 	if (ret > 0 && ret < (int) (sizeof(struct msg_header) + msg.header.len)) {
-		printf("server: write %d bytes expected %u\n", ret, (sizeof(struct msg_header) + msg.header.len));
+		printf("server: write %d bytes expected %zu\n", ret, (sizeof(struct msg_header) + msg.header.len));
 		exit_print();
 		exit(1);
 	} else if (ret < 0) {
@@ -442,7 +442,7 @@ static int read_header(int fd, struct msg *msg, bool *timeout)
 	verbose("Server: Reading header\n");
 	ret = serial_read(fd, &msg->header, sizeof(struct msg_header));
 	if (ret > 0 && ret < (int) sizeof(struct msg_header)) {
-		printf("server: read %d bytes expected %u\n",
+		printf("server: read %d bytes expected %zu\n",
 		       ret, sizeof(struct msg_header));
 		exit_print();
 		exit(1);
