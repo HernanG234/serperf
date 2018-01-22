@@ -344,6 +344,8 @@ static void run_client_seconds(int fd, int len, int type, int rqbytes,
 	struct msg msg;
 	struct timeval tval_before, tval_after, tval_result;
 	gettimeofday(&tval_before, NULL);
+	gettimeofday(&tval_after, NULL);
+	timersub(&tval_after, &tval_before, &tval_result);
 
 	verbose("Client: %s\n", __func__);
 	while ((long int)tval_result.tv_sec < limit) {
