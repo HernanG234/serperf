@@ -92,7 +92,7 @@ struct msg_header {
 
 struct msg {
 	struct msg_header header;
-	unsigned char payload[65536];
+	unsigned char payload[131072]; /* alloc dynamically */
 };
 
 static error_t parse_opt(int key, char *arg, struct argp_state *state) {
@@ -598,8 +598,8 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
-	if (arguments.length < 0 || arguments.length > 1024) {
-		printf ("%d bytes: not a valid length (0 < length <= 1024)\n",
+	if (arguments.length < 0 || arguments.length > 131072) {
+		printf ("%d bytes: not a valid length (0 < length <= 131072)\n",
 			arguments.length);
 		exit(1);
 	}
