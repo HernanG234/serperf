@@ -1,4 +1,5 @@
 #include <argp.h>
+#include <asm/types.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <stdarg.h>
@@ -23,6 +24,7 @@
 #define SERIAL_WRITE_IOC        _IOWR(SERIAL_IOC_MAGIC, 5, struct serial_rw_msg)
 
 /* params flags */
+#define BIT(nr)         (1UL << (nr))
 #define SERIAL_PARAMS_BAUDRATE          BIT(0)
 #define SERIAL_PARAMS_DATABITS          BIT(1)
 #define SERIAL_PARAMS_RCV_TIMEOUT       BIT(2)
@@ -36,6 +38,14 @@
 bool Verbose = false;
 int rmsgs = 0;
 int wmsgs = 0;
+bool serial_ioctl = false;
+bool w4xmit = false;
+
+struct serial_rw_msg {
+	__u16 flags;
+	__u32 count;
+	char *buf;
+};
 
 enum msg_types {
 	PING_PONG,
@@ -57,6 +67,8 @@ static struct argp_option options[] = {
 	{ "messages", 'm', "msgs", 0, "Client: Number of msgs to send"},
 	{ "time", 't', "seconds", 0, "Client: Seconds to transmit data"},
 	{ "verbose", 'v', 0, 0, "Verbose mode"},
+	{ "wait-4-xmit", 'w', 0, 0, "Wait for transmit to finish (only ioctl)"},
+	{ "ioctl", 'i', 0, 0, "Use IOCtl interface instead of read/write()" },
 	{ 0 }
 };
 
@@ -94,6 +106,8 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
 		  arguments->limit = strtol(arg, NULL, 10); break;
 	case 't': arguments->mors = SECONDS;
 		  arguments->limit = strtol(arg, NULL, 10); break;
+	case 'i': serial_ioctl = true; break;
+	case 'w': w4xmit = true; break;
 	case ARGP_KEY_ARG:
 		  if (state->arg_num >= 1) {
 			  argp_usage(state);
@@ -154,6 +168,39 @@ int check_crc(struct msg *msg)
 	return 0;
 }
 
+ssize_t serial_read(int fd, void *buf, size_t count)
+{
+	struct serial_rw_msg rw_msg;
+	int ret;
+
+	if (!serial_ioctl)
+		ret = read(fd, buf, count);
+	else {
+		rw_msg.count = count;
+		rw_msg.buf = buf;
+		rw_msg.flags = (w4xmit) ? SERIAL_WAIT_FOR_XMIT : 0;
+		ret = ioctl(fd, SERIAL_READ_IOC, &rw_msg);
+	}
+
+	return ret;
+}
+
+ssize_t serial_write(int fd, void *buf, size_t count)
+{
+	struct serial_rw_msg rw_msg;
+	int ret;
+
+	if (!serial_ioctl)
+		ret = write(fd, buf, count);
+	else {
+		rw_msg.count = count;
+		rw_msg.buf = buf;
+		rw_msg.flags = (w4xmit) ? SERIAL_WAIT_FOR_XMIT : 0;
+		ret = ioctl(fd, SERIAL_WRITE_IOC, &rw_msg);
+	}
+	return ret;
+}
+
 int verbose(const char *format, ...)
 {
 	if (!Verbose)
@@ -173,7 +220,7 @@ static void receive_reply(int fd, struct msg *msg)
 
 	verbose("Client: %s\n", __func__);
 	verbose("Client: Reading header\n");
-	ret = read(fd, &msg->header, sizeof(struct msg_header));
+	ret = serial_read(fd, &msg->header, sizeof(struct msg_header));
 	err = errno;
 	if (ret > 0 && ret < (int) sizeof(struct msg_header)) {
 		printf("server: read %d bytes expected %u\n", ret, sizeof(struct msg_header));
@@ -185,7 +232,7 @@ static void receive_reply(int fd, struct msg *msg)
 	}
 
 	verbose("Client: Reading payload\n");
-	ret = read(fd, msg->payload, msg->header.len);
+	ret = serial_read(fd, msg->payload, msg->header.len);
 	if (ret > 0 && ret < (int) msg->header.len) {
 		printf("server: read %d bytes expected %d\n", ret, msg->header.len);
 		exit(1);
@@ -212,7 +259,7 @@ static void send_msg(int fd, int len, int type, int rqbytes)
 	msg.header.crc = crc8(0, msg.payload, msg.header.len);
 
 	verbose("Client: Writing\n");
-	ret = write(fd, &msg.header, (sizeof(struct msg_header) + msg.header.len));
+	ret = serial_write(fd, &msg.header, (sizeof(struct msg_header) + msg.header.len));
 	if (ret > 0 && ret < (int) (sizeof(struct msg_header) + msg.header.len)) {
 		printf("server: write %d bytes expected %u\n", ret, (sizeof(struct msg_header) + msg.header.len));
 		exit(1);
@@ -320,7 +367,7 @@ static void ping_pong(int fd, const unsigned char *payload, int len)
 	msg.header.crc = crc8(0, msg.payload, msg.header.len);
 
 	verbose("Server: Writing\n");
-	ret = write(fd, &msg.header, (sizeof(struct msg_header) + msg.header.len));
+	ret = serial_write(fd, &msg.header, (sizeof(struct msg_header) + msg.header.len));
 	if (ret > 0 && ret < (int) (sizeof(struct msg_header) + msg.header.len)) {
 		printf("server: write %d bytes expected %u\n", ret, (sizeof(struct msg_header) + msg.header.len));
 		exit(1);
@@ -343,7 +390,7 @@ static void req_bytes(int fd, const unsigned char *payload, int len)
 	msg.header.crc = crc8(0, msg.payload, msg.header.len);
 
 	verbose("Server: Writing\n");
-	ret = write(fd, &msg.header, (sizeof(struct msg_header) + msg.header.len));
+	ret = serial_write(fd, &msg.header, (sizeof(struct msg_header) + msg.header.len));
 	if (ret > 0 && ret < (int) (sizeof(struct msg_header) + msg.header.len)) {
 		printf("server: write %d bytes expected %u\n", ret, (sizeof(struct msg_header) + msg.header.len));
 		exit(1);
@@ -359,8 +406,7 @@ static int read_header(int fd, struct msg *msg, bool *timeout)
 
 	*timeout = false;
 	verbose("Server: Reading header\n");
-	ret = read(fd, &msg->header, sizeof(struct msg_header));
-	printf("ret: %d\n", ret);
+	ret = serial_read(fd, &msg->header, sizeof(struct msg_header));
 	if (ret > 0 && ret < (int) sizeof(struct msg_header)) {
 		printf("server: read %d bytes expected %u\n",
 		       ret, sizeof(struct msg_header));
@@ -381,7 +427,7 @@ static int read_payload(int fd, struct msg *msg, bool *timeout)
 
 	*timeout = false;
 	verbose("Server: Reading payload\n");
-	ret = read(fd, &msg->payload, msg->header.len);
+	ret = serial_read(fd, &msg->payload, msg->header.len);
 	if (ret > 0 && ret < msg->header.len) {
 		printf("server: read %d bytes expected %d\n",
 		       ret, msg->header.len);
