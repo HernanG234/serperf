@@ -66,7 +66,7 @@ Arguments:
 -x | --msg-type		-> type of message: PING_PONG = 0 (default) | REQ_BYTES = 1
 -r | --req-bytes	-> (default = 0) Number of bytes requested to server
 -m | --messages		-> (optional) (client mode 1) number of messages to send as client
--t | --time			-> (optional) (client mode 2) seconds that the client will work
+-t | --time		-> (optional) (client mode 2) seconds that the client will work
 -v | --verbose		-> (optional) verbose mode
 -i | --ioctl 		-> (optional) use ioctl instead of standard read/write()
 -w | --wait-4-xmit 	-> (optional) set the WAIT_FOR_XMIT flag
