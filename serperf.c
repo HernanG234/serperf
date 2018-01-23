@@ -36,8 +36,10 @@
 
 #define SERIAL_WAIT_FOR_XMIT            BIT(0)
 
+#define MAX_PAYLOAD_LEN 131072
+
 struct timeval tval_before, tval_after, tval_result;
-bool Verbose = false;
+bool verb = false;
 int rmsgs = 0;
 int wmsgs = 0;
 bool serial_ioctl = false;
@@ -92,7 +94,7 @@ struct msg_header {
 
 struct msg {
 	struct msg_header header;
-	unsigned char payload[131072]; /* alloc dynamically */
+	unsigned char payload[MAX_PAYLOAD_LEN]; /* alloc dynamically */
 };
 
 static error_t parse_opt(int key, char *arg, struct argp_state *state) {
@@ -100,7 +102,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
 	switch (key) {
 	case 's': arguments->mode = SERVER; break;
 	case 'c': arguments->mode = CLIENT; break;
-	case 'v': Verbose = true; break;
+	case 'v': verb = true; break;
 	case 'l': arguments->length = strtol(arg, NULL, 10); break;
 	case 'x': arguments->type = strtol(arg, NULL, 10); break;
 	case 'r': arguments->rqbytes = strtol(arg, NULL, 10); break;
@@ -199,7 +201,7 @@ ssize_t serial_read(int fd, void *buf, size_t count)
 	else {
 		rw_msg.count = count;
 		rw_msg.buf = buf;
-		rw_msg.flags = (w4xmit) ? SERIAL_WAIT_FOR_XMIT : 0;
+		rw_msg.flags = w4xmit ? SERIAL_WAIT_FOR_XMIT : 0;
 		ret = ioctl(fd, SERIAL_READ_IOC, &rw_msg);
 	}
 
@@ -216,7 +218,7 @@ ssize_t serial_write(int fd, void *buf, size_t count)
 	else {
 		rw_msg.count = count;
 		rw_msg.buf = buf;
-		rw_msg.flags = (w4xmit) ? SERIAL_WAIT_FOR_XMIT : 0;
+		rw_msg.flags = w4xmit ? SERIAL_WAIT_FOR_XMIT : 0;
 		ret = ioctl(fd, SERIAL_WRITE_IOC, &rw_msg);
 	}
 	return ret;
@@ -224,12 +226,13 @@ ssize_t serial_write(int fd, void *buf, size_t count)
 
 int verbose(const char *format, ...)
 {
-	if (!Verbose)
-		return 0;
-
 	va_list args;
+	int ret;
+
+	if (!verb)
+		return 0;
 	va_start(args, format);
-	int ret = vprintf(format, args);
+	ret = vprintf(format, args);
 	va_end(args);
 
 	return ret;
@@ -243,7 +246,7 @@ static void receive_reply(int fd, struct msg *msg)
 	verbose("Client: Reading header\n");
 	ret = serial_read(fd, &msg->header, sizeof(struct msg_header));
 	err = errno;
-	if (ret > 0 && ret < (int) sizeof(struct msg_header)) {
+	if (ret > 0 && ret < (int)sizeof(struct msg_header)) {
 		printf("server: read %d bytes expected %zu\n", ret, sizeof(struct msg_header));
 		exit_print();
 		exit(1);
@@ -256,7 +259,7 @@ static void receive_reply(int fd, struct msg *msg)
 
 	verbose("Client: Reading payload\n");
 	ret = serial_read(fd, msg->payload, msg->header.len);
-	if (ret > 0 && ret < (int) msg->header.len) {
+	if (ret > 0 && ret < (int)msg->header.len) {
 		printf("Client: read %d bytes expected %d\n", ret, msg->header.len);
 		exit_print();
 		exit(1);
@@ -285,7 +288,7 @@ static void send_msg(int fd, int len, int type, int rqbytes)
 
 	verbose("Client: Writing\n");
 	ret = serial_write(fd, &msg.header, (sizeof(struct msg_header) + msg.header.len));
-	if (ret > 0 && ret < (int) (sizeof(struct msg_header) + msg.header.len)) {
+	if (ret > 0 && ret < (int)(sizeof(struct msg_header) + msg.header.len)) {
 		printf("Client: write %d bytes expected %zu\n", ret, (sizeof(struct msg_header) + msg.header.len));
 		exit_print();
 		exit(1);
@@ -399,7 +402,7 @@ static void ping_pong(int fd, const unsigned char *payload, int len)
 
 	verbose("Server: Writing\n");
 	ret = serial_write(fd, &msg.header, (sizeof(struct msg_header) + msg.header.len));
-	if (ret > 0 && ret < (int) (sizeof(struct msg_header) + msg.header.len)) {
+	if (ret > 0 && ret < (int)(sizeof(struct msg_header) + msg.header.len)) {
 		printf("server: write %d bytes expected %zu\n", ret, (sizeof(struct msg_header) + msg.header.len));
 		exit_print();
 		exit(1);
@@ -424,7 +427,7 @@ static void req_bytes(int fd, const unsigned char *payload, int len)
 
 	verbose("Server: Writing\n");
 	ret = serial_write(fd, &msg.header, (sizeof(struct msg_header) + msg.header.len));
-	if (ret > 0 && ret < (int) (sizeof(struct msg_header) + msg.header.len)) {
+	if (ret > 0 && ret < (int)(sizeof(struct msg_header) + msg.header.len)) {
 		printf("server: write %d bytes expected %zu\n", ret, (sizeof(struct msg_header) + msg.header.len));
 		exit_print();
 		exit(1);
@@ -443,7 +446,7 @@ static int read_header(int fd, struct msg *msg, bool *timeout)
 	*timeout = false;
 	verbose("Server: Reading header\n");
 	ret = serial_read(fd, &msg->header, sizeof(struct msg_header));
-	if (ret > 0 && ret < (int) sizeof(struct msg_header)) {
+	if (ret > 0 && ret < (int)sizeof(struct msg_header)) {
 		printf("server: read %d bytes expected %zu\n",
 		       ret, sizeof(struct msg_header));
 		exit_print();
@@ -484,11 +487,10 @@ static int read_payload(int fd, struct msg *msg, bool *timeout)
 
 static int read_msg(int fd, struct msg *msg)
 {
-	int ret;
 	bool timeout = false;
-	bool done = false;
+	int ret;
 
-	while (!done) {
+	while (1) {
 		ret = read_header(fd, msg, &timeout);
 		verbose("Server: Read %d bytes as header\n", ret);
 		if (timeout)
@@ -498,7 +500,7 @@ static int read_msg(int fd, struct msg *msg)
 		verbose("Server: Read %d bytes as payload\n", ret);
 		if (timeout)
 			continue;
-		done = true;
+		break;
 	}
 
 	return ret;
