@@ -290,6 +290,7 @@ static void send_msg(int fd, int len, int type, int rqbytes)
 	} else {
 		msg.header.len = len;
 		memset(msg.payload, 0x55, len);
+		msg.payload[msg.header.len - 1] = 0xFF;
 	}
 	msg.header.crc = crc8(0, msg.payload, msg.header.len);
 
@@ -382,6 +383,7 @@ static void run_client(int fd, int len, int type, int rqbytes,
 
 	verbose("Starting Client...\n");
 	memset(cmp, 0x55, len);
+	cmp[len - 1] = 0xFF;
 	switch (mors) {
 	case MSGS:
 		run_client_msgs(fd, len, type, rqbytes, cmp, limit, false);
@@ -507,7 +509,10 @@ static int read_msg(int fd, struct msg *msg)
 		verbose("Server: Read %d bytes as header\n", ret);
 		if (timeout)
 			continue;
-
+		if (msg->header.len > MAX_PAYLOAD_LEN) {
+			printf("Header.len too large: %x\n", msg->header.len);
+			exit(1);
+		}
 		ret = read_payload(fd, msg, &timeout);
 		verbose("Server: Read %d bytes as payload\n", ret);
 		if (timeout)
