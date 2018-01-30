@@ -185,10 +185,9 @@ void exit_print()
 {
 	printf("\nTotal msgs READ: \t%d msgs\n", rmsgs);
 	printf("Total msgs WRITTEN: \t%d msgs\n", wmsgs);
-
 	gettimeofday(&tval_after, NULL);
 	timersub(&tval_after, &tval_before, &tval_result);
-	printf("Time elapsed: %ld.%06ld\n",
+	printf("Time elapsed: %ld.%06ld\n\n",
 	       (long int)tval_result.tv_sec, (long int)tval_result.tv_usec);
 }
 
@@ -260,7 +259,6 @@ static void receive_reply(int fd, struct msg *msg)
 		exit_print();
 		exit(1);
 	} else if (ret < 0  && err != ETIMEDOUT) {
-		/* TODO: Handle timeout. If timeout just continue. */
 		perror("server read error: ");
 		exit_print();
 		exit(1);
@@ -651,18 +649,31 @@ static void run_loopback(struct loopback lb)
 
 void printstatus(struct arguments arguments)
 {
-	printf ("Device = %s\nMode = %s\n",
-			arguments.device,
-			arguments.mode ? "Client" : "Server");
+	printf("Device = %s\n", arguments.device);
+	printf("Mode = ");
+	switch (arguments.mode) {
+	case SERVER:
+		printf("Server\n"); break;
+	case CLIENT:
+		printf("Client\n"); break;
+	case LOOP:
+		printf("Loopback\n"); break;
+	default:
+		printf("Unknown mode - exit\n");
+		exit(1);
+	}
+
 	if (arguments.mode)
-		printf ("Message length = %d\nMessage type = %s\n",
-			arguments.type ? 4 : arguments.length,
-			arguments.type ? "REQ_BYTES" : "PING_PONG");
-	if (arguments.type == REQ_BYTES)
-		printf ("Bytes requested to server = %d\n",
+		printf("Message length = %d\n",
+			arguments.type ? 4 : arguments.length);
+	if (arguments.mode != LOOP)
+		printf("Message type = %s\n",
+		       arguments.type ? "REQ_BYTES" : "PING_PONG");
+	if (arguments.type == REQ_BYTES && arguments.mode != LOOP)
+		printf("Bytes requested to server = %d\n",
 			arguments.rqbytes);
 	if (arguments.mors)
-		printf ("Send %s%d %s\n",
+		printf("Send %s%d %s\n",
 			arguments.mors - 1 ? "for " : "",
 			arguments.limit,
 			arguments.mors - 1 ? "seconds" : "messages");
