@@ -59,7 +59,7 @@ enum msg_types {
 	LOOPBACK
 };
 
-const char *argp_program_version = "serperf 2.0.0";
+const char *argp_program_version = "serperf 3.0.0";
 const char *argp_program_bug_address = "<ezequiel@vanguardiasur.com.ar>";
 static char doc[] = "Test /dev/serial performance.";
 static char args_doc[] = "-s|c (-l bytes) (-r bytes) (-t seconds) DEVICE";
