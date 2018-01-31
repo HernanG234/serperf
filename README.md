@@ -50,6 +50,11 @@ the tool is on every step.
  ---------------------------                       ---------------------------
 ```
 
+Loopback mode is now supported. The tool launches two threads, one writes, the
+other reads and checks the crc. The loopback mode supports sending a specific
+number of messages, sending for a specific amount of time in seconds or
+infinitely if no -m or -t arguments are passed.
+
 ### Installation
 
 Clone from [here](https://github.com/vanguardiasur/serperf). Run make. Remember to
@@ -62,6 +67,7 @@ Arguments:
 ```
 -s | --server		-> run as server
 -c | --client		-> run as client
+-p | --loopback 	-> run in loopback mode
 -l | --msg-length	-> (default = 1024) length of message to send in bytes
 -x | --msg-type		-> type of message: PING_PONG = 0 (default) | REQ_BYTES = 1
 -r | --req-bytes	-> (default = 0) Number of bytes requested to server
@@ -106,3 +112,6 @@ receiveing messages of 64 bytes. Verbose mode.
 
 	> #./serperf -c -l 64 -v /dev/serial1
 
+Run loopback mode: Send and receive 10kB messages through ioctl for 10 seconds
+
+	> #./serperf -p -l 10240 -t 10 -i /dev/serial0
