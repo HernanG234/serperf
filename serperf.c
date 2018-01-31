@@ -380,6 +380,14 @@ static void run_client(int fd, int len, int type, int rqbytes,
 {
 	struct msg msg;
 	char cmp[len];
+	int ret;
+
+	verbose("Erasing buffers\n");
+	ret = ioctl(fd, SERIAL_RX_BUFFER_CLEAR);
+	if (ret < 0) {
+		perror("ioctl error: ");
+		exit(1);
+	}
 
 	verbose("Starting Client...\n");
 	memset(cmp, 0x55, len);
@@ -643,6 +651,15 @@ void *serial_writer (void *arg) {
 static void run_loopback(struct loopback lb)
 {
 	void *result;
+	int ret;
+
+	verbose("Erasing buffers\n");
+	ret = ioctl(lb.fd, SERIAL_RX_BUFFER_CLEAR);
+	if (ret < 0) {
+		perror("ioctl error: ");
+		exit(1);
+	}
+
 
 	verbose("Loopback: %s: Launching threads\n", __func__);
 	pthread_t s_reader, s_writer;
@@ -722,13 +739,6 @@ int main(int argc, char *argv[])
 
 	if (!S_ISCHR(dev_stat.st_mode)) {
 		printf ("%s is not a character device/n", arguments.device);
-		exit(1);
-	}
-
-	verbose("Erasing buffers\n");
-	ret = ioctl(fd, SERIAL_RX_BUFFER_CLEAR);
-	if (ret < 0) {
-		perror("ioctl error: ");
 		exit(1);
 	}
 
